@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+
+# Build output
+dist/
+build/
+out/
+
+# Local state
+.env
+.env.*
+*.log
+pet_state.local.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
