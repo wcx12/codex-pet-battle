@@ -1,4 +1,6 @@
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
+
+export const ECONOMY_VERSION = "hard-v1";
 
 export const DEFAULT_PET_NAME = "Pathy";
 

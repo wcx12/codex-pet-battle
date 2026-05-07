@@ -27,13 +27,13 @@ describe("petStateStore", () => {
     await fs.rm(tempDirectory, { recursive: true, force: true });
   });
 
-  it("creates the default schema v1 state", () => {
+  it("creates the default schema v2 state", () => {
     const state = createDefaultPetState(
       new Date("2026-05-07T00:00:00.000Z")
     );
 
     expect(state).toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       pet: {
         name: "Pathy",
         level: 1,
@@ -47,6 +47,13 @@ describe("petStateStore", () => {
         lifetimeOutputTokens: 0,
         lifetimeReasoningOutputTokens: 0,
         lifetimeTotalTokens: 0
+      },
+      economy: {
+        version: "hard-v1",
+        initialImportCompleted: false,
+        dailyXpLedger: {},
+        weeklyXpLedger: {},
+        xpRemainder: 0
       },
       processedObservations: [],
       createdAt: "2026-05-07T00:00:00.000Z",
@@ -131,7 +138,7 @@ describe("petStateStore", () => {
     const filePath = statePath();
     await fs.writeFile(
       filePath,
-      JSON.stringify({ ...createDefaultPetState(), schemaVersion: 2 }),
+      JSON.stringify({ ...createDefaultPetState(), schemaVersion: 3 }),
       "utf8"
     );
 
@@ -140,7 +147,63 @@ describe("petStateStore", () => {
     );
   });
 
-  it("fails safely when schema v1 shape is invalid", async () => {
+  it("migrates schema v1 state into schema v2 in memory", async () => {
+    const filePath = statePath();
+    const v1State = {
+      schemaVersion: 1,
+      pet: {
+        name: "Pathy",
+        level: 2,
+        xp: 5,
+        xpToNextLevel: 180,
+        skills: ["token_spark"]
+      },
+      usage: {
+        lifetimeInputTokens: 1,
+        lifetimeCachedInputTokens: 2,
+        lifetimeOutputTokens: 3,
+        lifetimeReasoningOutputTokens: 4,
+        lifetimeTotalTokens: 10
+      },
+      processedObservations: ["old"],
+      createdAt: "2026-05-07T00:00:00.000Z",
+      updatedAt: "2026-05-07T01:00:00.000Z"
+    };
+    await fs.writeFile(filePath, JSON.stringify(v1State), "utf8");
+
+    await expect(readPetState(filePath)).resolves.toEqual({
+      ...v1State,
+      schemaVersion: 2,
+      economy: {
+        version: "hard-v1",
+        initialImportCompleted: true,
+        dailyXpLedger: {},
+        weeklyXpLedger: {},
+        xpRemainder: 0
+      }
+    });
+  });
+
+  it("rejects schema v2 states with invalid XP remainder", async () => {
+    const filePath = statePath();
+    await fs.writeFile(
+      filePath,
+      JSON.stringify({
+        ...createDefaultPetState(),
+        economy: {
+          ...createDefaultPetState().economy,
+          xpRemainder: 1
+        }
+      }),
+      "utf8"
+    );
+
+    await expect(readPetState(filePath)).rejects.toBeInstanceOf(
+      UserFacingError
+    );
+  });
+
+  it("fails safely when schema v2 shape is invalid", async () => {
     const filePath = statePath();
     await fs.writeFile(
       filePath,

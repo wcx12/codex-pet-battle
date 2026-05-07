@@ -1,3 +1,7 @@
+import { ECONOMY_VERSION } from "./constants.js";
+import { hardDailySoftCap, hardWeeklyCap } from "./economy/caps.js";
+import { outputFocusedFormula } from "./economy/formulas.js";
+import { applyLevelCurve, milestoneCurve } from "./economy/levelCurves.js";
 import type {
   LifetimeUsage,
   PetState,
@@ -14,9 +18,14 @@ const SKILL_UNLOCKS = [
   { level: 10, skill: "battle_ready" }
 ] as const;
 
+const HARD_DAILY_TIERS = [
+  { size: 6, rate: 1 },
+  { size: 14, rate: 0.35 },
+  { size: 40, rate: 0.1 }
+] as const;
+
 export function xpToNextLevel(level: number): number {
-  const normalizedLevel = Math.max(1, Math.floor(level));
-  return 100 + (normalizedLevel - 1) * 50;
+  return milestoneCurve.xpToNextLevel(level);
 }
 
 export function applyProgression(
@@ -27,9 +36,7 @@ export function applyProgression(
   const existingObservationIds = new Set(state.processedObservations);
   const processedObservationIds: string[] = [];
   const usageDelta = createEmptyLifetimeUsage();
-
-  let fractionalXp = 0;
-  let hasPositiveActivity = false;
+  const rawXpByDay = new Map<string, number>();
 
   for (const observation of observations) {
     if (existingObservationIds.has(observation.id)) {
@@ -42,34 +49,48 @@ export function applyProgression(
     const normalizedUsage = normalizeUsage(observation.usage);
     addUsageDelta(usageDelta, normalizedUsage);
 
-    fractionalXp += xpFromUsage(normalizedUsage);
-    hasPositiveActivity ||= hasPositiveUsage(normalizedUsage);
+    const rawXp = outputFocusedFormula.calculateRawXp(normalizedUsage);
+    const day = dayBucket(observation.timestamp);
+    rawXpByDay.set(day, (rawXpByDay.get(day) ?? 0) + rawXp);
   }
 
-  const gainedXp =
-    hasPositiveActivity && fractionalXp < 1 ? 1 : Math.floor(fractionalXp);
+  const rawXp = sum([...rawXpByDay.values()]);
+  const nextDailyLedger = { ...state.economy.dailyXpLedger };
+  const nextWeeklyLedger = { ...state.economy.weeklyXpLedger };
+  let dailyCappedXp = 0;
+  let weeklyCappedXp = 0;
 
-  let level = state.pet.level;
-  let xp = state.pet.xp + gainedXp;
+  for (const [day, dayRawXp] of [...rawXpByDay.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    const existingDayCappedXp = nextDailyLedger[day] ?? 0;
+    const dayIncrement = applyHardDailyIncrement(dayRawXp, existingDayCappedXp);
+    nextDailyLedger[day] = roundLedgerValue(existingDayCappedXp + dayIncrement);
+    dailyCappedXp += dayIncrement;
 
-  while (xp >= xpToNextLevel(level)) {
-    xp -= xpToNextLevel(level);
-    level += 1;
+    const week = weekBucket(day);
+    const existingWeekCappedXp = nextWeeklyLedger[week] ?? 0;
+    const weekIncrement = applyHardWeeklyIncrement(dayIncrement, existingWeekCappedXp);
+    nextWeeklyLedger[week] = roundLedgerValue(existingWeekCappedXp + weekIncrement);
+    weeklyCappedXp += weekIncrement;
   }
 
+  const importApplied = !state.economy.initialImportCompleted && processedObservationIds.length > 0;
+  const importMode: ProgressionResult["importMode"] = importApplied ? "profile-only" : "none";
+  const finalXp = importApplied ? 0 : weeklyCappedXp;
+  const totalIntegerXp = roundLedgerValue(state.economy.xpRemainder + finalXp);
+  const gainedXp = Math.floor(totalIntegerXp);
+  const xpRemainder = roundLedgerValue(totalIntegerXp - gainedXp);
+
+  const levelResult = applyLevelCurve(gainedXp, milestoneCurve, state.pet.level, state.pet.xp);
   const previousSkills = new Set(state.pet.skills);
   const newlyUnlockedSkills = SKILL_UNLOCKS.filter(
-    ({ level: unlockLevel, skill }) => level >= unlockLevel && !previousSkills.has(skill)
+    ({ level: unlockLevel, skill }) => levelResult.level >= unlockLevel && !previousSkills.has(skill)
   ).map(({ skill }) => skill);
 
-  const skills = [...state.pet.skills, ...newlyUnlockedSkills];
   const didChange =
     processedObservationIds.length > 0 ||
     gainedXp > 0 ||
-    level !== state.pet.level ||
-    xp !== state.pet.xp ||
+    importApplied ||
     newlyUnlockedSkills.length > 0;
-
   const updatedAt = didChange ? now.toISOString() : state.updatedAt;
 
   return {
@@ -77,10 +98,10 @@ export function applyProgression(
       ...state,
       pet: {
         ...state.pet,
-        level,
-        xp,
-        xpToNextLevel: xpToNextLevel(level),
-        skills
+        level: levelResult.level,
+        xp: levelResult.xpIntoLevel,
+        xpToNextLevel: levelResult.xpToNextLevel,
+        skills: [...state.pet.skills, ...newlyUnlockedSkills]
       },
       usage: {
         lifetimeInputTokens:
@@ -96,6 +117,14 @@ export function applyProgression(
         lifetimeTotalTokens:
           state.usage.lifetimeTotalTokens + usageDelta.lifetimeTotalTokens
       },
+      economy: {
+        ...state.economy,
+        version: ECONOMY_VERSION,
+        initialImportCompleted: state.economy.initialImportCompleted || importApplied,
+        dailyXpLedger: nextDailyLedger,
+        weeklyXpLedger: nextWeeklyLedger,
+        xpRemainder: importApplied ? state.economy.xpRemainder : xpRemainder
+      },
       processedObservations: [
         ...state.processedObservations,
         ...processedObservationIds
@@ -103,23 +132,50 @@ export function applyProgression(
       updatedAt
     },
     gainedXp,
+    rawXp,
+    dailyCappedXp,
+    weeklyCappedXp,
+    finalXp,
+    importMode,
+    importApplied,
+    economyVersion: ECONOMY_VERSION,
     newlyUnlockedSkills,
     processedObservationIds
   };
 }
 
-function xpFromUsage(usage: TokenUsage): number {
-  const uncachedInputTokens = Math.max(
-    usage.inputTokens - usage.cachedInputTokens,
-    0
-  );
+function applyHardDailyIncrement(rawXp: number, existingCappedXp: number): number {
+  const rawEquivalent = rawEquivalentFromHardDailyCappedXp(existingCappedXp);
+  const cappedBefore = hardDailySoftCap.apply(rawEquivalent);
+  const cappedAfter = hardDailySoftCap.apply(rawEquivalent + rawXp);
+  return Math.max(0, cappedAfter - cappedBefore);
+}
 
-  return (
-    uncachedInputTokens / 1000 +
-    usage.cachedInputTokens / 5000 +
-    usage.outputTokens / 250 +
-    usage.reasoningOutputTokens / 250
-  );
+function rawEquivalentFromHardDailyCappedXp(cappedXp: number): number {
+  let remainingCapped = Math.max(0, cappedXp);
+  let rawEquivalent = 0;
+
+  for (const tier of HARD_DAILY_TIERS) {
+    const tierCappedSize = tier.size * tier.rate;
+    const cappedInTier = Math.min(remainingCapped, tierCappedSize);
+    rawEquivalent += cappedInTier / tier.rate;
+    remainingCapped -= cappedInTier;
+
+    if (remainingCapped <= 0) {
+      return rawEquivalent;
+    }
+  }
+
+  return rawEquivalent;
+}
+
+function applyHardWeeklyIncrement(xp: number, existingWeeklyXp: number): number {
+  const maxXpPerWeek = hardWeeklyCap.maxXpPerWeek;
+  if (maxXpPerWeek === undefined) {
+    return xp;
+  }
+
+  return Math.max(0, Math.min(xp, maxXpPerWeek - existingWeeklyXp));
 }
 
 function normalizeUsage(usage: TokenUsage): TokenUsage {
@@ -140,14 +196,25 @@ function toNonNegativeInteger(value: number): number {
   return Math.floor(value);
 }
 
-function hasPositiveUsage(usage: TokenUsage): boolean {
-  return (
-    usage.inputTokens > 0 ||
-    usage.cachedInputTokens > 0 ||
-    usage.outputTokens > 0 ||
-    usage.reasoningOutputTokens > 0 ||
-    usage.totalTokens > 0
-  );
+function dayBucket(timestamp: string): string {
+  const parsedTime = Date.parse(timestamp);
+  if (Number.isNaN(parsedTime)) {
+    return "unknown";
+  }
+
+  return new Date(parsedTime).toISOString().slice(0, 10);
+}
+
+function weekBucket(day: string): string {
+  if (day === "unknown") {
+    return "unknown";
+  }
+
+  const date = new Date(`${day}T00:00:00.000Z`);
+  const dayOfWeek = date.getUTCDay();
+  const daysSinceMonday = (dayOfWeek + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - daysSinceMonday);
+  return date.toISOString().slice(0, 10);
 }
 
 function createEmptyLifetimeUsage(): LifetimeUsage {
@@ -166,4 +233,12 @@ function addUsageDelta(usageDelta: LifetimeUsage, usage: TokenUsage): void {
   usageDelta.lifetimeOutputTokens += usage.outputTokens;
   usageDelta.lifetimeReasoningOutputTokens += usage.reasoningOutputTokens;
   usageDelta.lifetimeTotalTokens += usage.totalTokens;
+}
+
+function sum(values: number[]): number {
+  return values.reduce((total, value) => total + value, 0);
+}
+
+function roundLedgerValue(value: number): number {
+  return Math.round(value * 1000000) / 1000000;
 }

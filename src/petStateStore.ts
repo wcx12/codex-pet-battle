@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   CURRENT_SCHEMA_VERSION,
+  ECONOMY_VERSION,
   DEFAULT_PET_NAME
 } from "./constants.js";
 import { UserFacingError } from "./errors.js";
@@ -27,6 +28,7 @@ export function createDefaultPetState(now = new Date()): PetState {
       skills: []
     },
     usage: createEmptyLifetimeUsage(),
+    economy: createDefaultEconomyState(),
     processedObservations: [],
     createdAt: timestamp,
     updatedAt: timestamp
@@ -129,6 +131,10 @@ function parsePetState(value: unknown, stateFilePath: string): PetState {
     throw invalidStateError(stateFilePath);
   }
 
+  if (value.schemaVersion === 1) {
+    return migrateV1State(value, stateFilePath);
+  }
+
   if (value.schemaVersion !== CURRENT_SCHEMA_VERSION) {
     throw new UserFacingError(
       `Pet state file at ${stateFilePath} uses unsupported schema version ${String(
@@ -137,6 +143,52 @@ function parsePetState(value: unknown, stateFilePath: string): PetState {
     );
   }
 
+  if (
+    !isRecord(value.pet) ||
+    !isRecord(value.usage) ||
+    !isRecord(value.economy) ||
+    !isStringArray(value.processedObservations) ||
+    typeof value.createdAt !== "string" ||
+    typeof value.updatedAt !== "string"
+  ) {
+    throw invalidStateError(stateFilePath);
+  }
+
+  const pet = value.pet;
+  const usage = value.usage;
+  const economy = value.economy;
+
+  if (
+    typeof pet.name !== "string" ||
+    !isNonNegativeInteger(pet.level) ||
+    pet.level < 1 ||
+    !isNonNegativeInteger(pet.xp) ||
+    !isNonNegativeInteger(pet.xpToNextLevel) ||
+    !isStringArray(pet.skills) ||
+    !isLifetimeUsage(usage) ||
+    !isEconomyState(economy)
+  ) {
+    throw invalidStateError(stateFilePath);
+  }
+
+  return {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    pet: {
+      name: pet.name,
+      level: pet.level,
+      xp: pet.xp,
+      xpToNextLevel: pet.xpToNextLevel,
+      skills: pet.skills
+    },
+    usage,
+    economy,
+    processedObservations: value.processedObservations,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt
+  };
+}
+
+function migrateV1State(value: Record<string, unknown>, stateFilePath: string): PetState {
   if (
     !isRecord(value.pet) ||
     !isRecord(value.usage) ||
@@ -162,16 +214,26 @@ function parsePetState(value: unknown, stateFilePath: string): PetState {
     throw invalidStateError(stateFilePath);
   }
 
+  const hasHistoricalActivity =
+    value.processedObservations.length > 0 ||
+    usage.lifetimeTotalTokens > 0 ||
+    pet.level > 1 ||
+    pet.xp > 0;
+
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     pet: {
       name: pet.name,
       level: pet.level,
       xp: pet.xp,
-      xpToNextLevel: pet.xpToNextLevel,
+      xpToNextLevel: xpToNextLevel(pet.level),
       skills: pet.skills
     },
     usage,
+    economy: {
+      ...createDefaultEconomyState(),
+      initialImportCompleted: hasHistoricalActivity
+    },
     processedObservations: value.processedObservations,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt
@@ -186,6 +248,33 @@ function createEmptyLifetimeUsage(): LifetimeUsage {
     lifetimeReasoningOutputTokens: 0,
     lifetimeTotalTokens: 0
   };
+}
+
+function createDefaultEconomyState(): PetState["economy"] {
+  return {
+    version: ECONOMY_VERSION,
+    initialImportCompleted: false,
+    dailyXpLedger: {},
+    weeklyXpLedger: {},
+    xpRemainder: 0
+  };
+}
+
+function isEconomyState(value: unknown): value is PetState["economy"] {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    value.version === ECONOMY_VERSION &&
+    typeof value.initialImportCompleted === "boolean" &&
+    isNumberRecord(value.dailyXpLedger) &&
+    isNumberRecord(value.weeklyXpLedger) &&
+    typeof value.xpRemainder === "number" &&
+    Number.isFinite(value.xpRemainder) &&
+    value.xpRemainder >= 0 &&
+    value.xpRemainder < 1
+  );
 }
 
 function isLifetimeUsage(value: unknown): value is LifetimeUsage {
@@ -204,7 +293,7 @@ function isLifetimeUsage(value: unknown): value is LifetimeUsage {
 
 function invalidStateError(stateFilePath: string): UserFacingError {
   return new UserFacingError(
-    `Pet state file at ${stateFilePath} is not a valid schema v1 state. Back it up or remove it before scanning again.`
+    `Pet state file at ${stateFilePath} is not a valid schema v1/v2 state. Back it up or remove it before scanning again.`
   );
 }
 
@@ -214,6 +303,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isNumberRecord(value: unknown): value is Record<string, number> {
+  return (
+    isRecord(value) &&
+    Object.values(value).every((item) => typeof item === "number" && Number.isFinite(item) && item >= 0)
+  );
 }
 
 function isNonNegativeInteger(value: unknown): value is number {

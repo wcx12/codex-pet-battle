@@ -38,6 +38,14 @@ export interface PetProfile {
   skills: string[];
 }
 
+export interface EconomyState {
+  version: "hard-v1";
+  initialImportCompleted: boolean;
+  dailyXpLedger: Record<string, number>;
+  weeklyXpLedger: Record<string, number>;
+  xpRemainder: number;
+}
+
 export interface LifetimeUsage {
   lifetimeInputTokens: number;
   lifetimeCachedInputTokens: number;
@@ -47,9 +55,10 @@ export interface LifetimeUsage {
 }
 
 export interface PetState {
-  schemaVersion: 1;
+  schemaVersion: 2;
   pet: PetProfile;
   usage: LifetimeUsage;
+  economy: EconomyState;
   processedObservations: string[];
   createdAt: string;
   updatedAt: string;
@@ -58,6 +67,13 @@ export interface PetState {
 export interface ProgressionResult {
   state: PetState;
   gainedXp: number;
+  rawXp: number;
+  dailyCappedXp: number;
+  weeklyCappedXp: number;
+  finalXp: number;
+  importMode: "none" | "profile-only";
+  importApplied: boolean;
+  economyVersion: string;
   newlyUnlockedSkills: string[];
   processedObservationIds: string[];
 }

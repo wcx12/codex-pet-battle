@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -34,12 +34,20 @@ describe("cli", () => {
     const first = await runCliForTest(["scan", "--codex-home", codexHome, "--state-file", stateFile]);
     expect(first.code).toBe(0);
     expect(first.stdout).toContain("Dry run: no");
-    expect(first.stdout).toContain("XP gained: 3");
+    expect(first.stdout).toContain("Economy: hard-v1");
+    expect(first.stdout).toContain("Import applied: profile-only");
+    expect(first.stdout).toContain("Final XP after import rules: 0");
+    expect(first.stdout).toContain("XP gained: 0");
     expect(first.stdout).not.toContain("SECRET_PROMPT_SHOULD_NOT_LEAK");
     expect(first.stderr).toBe("");
 
     const firstState = await readFile(stateFile, "utf8");
-    expect(firstState).toContain('"xp": 3');
+    const parsedFirstState = JSON.parse(firstState);
+    expect(parsedFirstState.schemaVersion).toBe(2);
+    expect(parsedFirstState.pet.xp).toBe(0);
+    expect(parsedFirstState.economy.initialImportCompleted).toBe(true);
+    expect(parsedFirstState.economy.dailyXpLedger["2026-05-07"]).toBeCloseTo(0.045667);
+    expect(parsedFirstState.economy.weeklyXpLedger["2026-05-04"]).toBeCloseTo(0.045667);
     expect(firstState).not.toContain("SECRET_PROMPT_SHOULD_NOT_LEAK");
     expect(firstState).not.toContain(codexHome);
 
@@ -76,12 +84,23 @@ describe("cli", () => {
     expect(firstDryRun.code).toBe(0);
     expect(firstDryRun.stdout).toContain("Dry run complete");
     expect(firstDryRun.stdout).toContain("Dry run: yes");
-    expect(firstDryRun.stdout).toContain("XP gained: 3");
+    expect(firstDryRun.stdout).toContain("Import applied: profile-only");
+    expect(firstDryRun.stdout).toContain("XP gained: 0");
     await expect(fileExists(stateFile)).resolves.toBe(false);
 
     await runCliForTest(["scan", "--codex-home", codexHome, "--state-file", stateFile]);
     const before = await readFile(stateFile, "utf8");
     const beforeStat = await stat(stateFile);
+    await appendCodexSession(
+      codexHome,
+      tokenCountLine("2026-05-07T01:00:00.000Z", {
+        input_tokens: 0,
+        cached_input_tokens: 0,
+        output_tokens: 12000,
+        reasoning_output_tokens: 0,
+        total_tokens: 12000
+      })
+    );
 
     const secondDryRun = await runCliForTest([
       "scan",
@@ -93,8 +112,9 @@ describe("cli", () => {
     ]);
 
     expect(secondDryRun.code).toBe(0);
-    expect(secondDryRun.stdout).toContain("New observations: 0");
-    expect(secondDryRun.stdout).toContain("XP gained: 0");
+    expect(secondDryRun.stdout).toContain("New observations: 1");
+    expect(secondDryRun.stdout).toContain("Import mode: none");
+    expect(secondDryRun.stdout).toContain("XP gained: 1");
     expect(await readFile(stateFile, "utf8")).toBe(before);
     expect((await stat(stateFile)).mtimeMs).toBe(beforeStat.mtimeMs);
   });
@@ -135,7 +155,8 @@ describe("cli", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("Recent days: 1");
     expect(result.stdout).toContain("New observations: 1");
-    expect(result.stdout).toContain("XP gained: 1");
+    expect(result.stdout).toContain("Import applied: profile-only");
+    expect(result.stdout).toContain("XP gained: 0");
     await expect(fileExists(stateFile)).resolves.toBe(false);
   });
 
@@ -160,20 +181,22 @@ describe("cli", () => {
     expect(statusResult.code).toBe(0);
     expect(statusResult.stdout).toContain("Pet status");
     expect(statusResult.stdout).toContain("Level: 1");
-    expect(statusResult.stdout).toContain("XP: 1/100");
+    expect(statusResult.stdout).toContain("XP: 0/100");
     expect(await readFile(stateFile, "utf8")).toBe(before);
     expect((await stat(stateFile)).mtimeMs).toBe(beforeStat.mtimeMs);
   });
 
   it("returns a user-facing error for a missing Codex home", async () => {
     const root = await makeTempDir();
-    const missingHome = path.join(root, "missing-codex-home");
+    const missingHome = path.join(root, "missing codex home");
     const stateFile = path.join(root, "pet_state.local.json");
 
     const result = await runCliForTest(["scan", "--codex-home", missingHome, "--state-file", stateFile]);
 
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("Codex home does not exist");
+    expect(result.stderr).toContain("[path]");
+    expect(result.stderr).not.toContain(missingHome);
   });
 
   it("rejects dry-run on status because status is already read-only", async () => {
@@ -248,6 +271,11 @@ async function createCodexHome(root: string, lines: string[]): Promise<string> {
   await mkdir(sessionDir, { recursive: true });
   await writeFile(path.join(sessionDir, "rollout-test.jsonl"), `${lines.join("\n")}\n`, "utf8");
   return codexHome;
+}
+
+async function appendCodexSession(codexHome: string, line: string): Promise<void> {
+  const sessionFile = path.join(codexHome, "sessions", "2026", "05", "07", "rollout-test.jsonl");
+  await appendFile(sessionFile, `${line}\n`, "utf8");
 }
 
 function tokenCountLine(

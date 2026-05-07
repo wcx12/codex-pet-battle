@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "benchmark:xp": "tsx scripts/benchmark_xp.ts",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",

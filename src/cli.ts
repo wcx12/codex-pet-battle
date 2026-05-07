@@ -56,12 +56,12 @@ export async function runCli(argv = process.argv.slice(2), io: CliIo = defaultIo
     return 0;
   } catch (error) {
     if (error instanceof UserFacingError) {
-      writeLine(io.stderr, `Error: ${error.message}`);
+      writeLine(io.stderr, `Error: ${sanitizeErrorMessage(error.message)}`);
       return 1;
     }
 
     const message = error instanceof Error ? error.message : String(error);
-    writeLine(io.stderr, `Unexpected error: ${message}`);
+    writeLine(io.stderr, `Unexpected error: ${sanitizeErrorMessage(message)}`);
     return 1;
   }
 }
@@ -157,6 +157,19 @@ async function runScan(parsed: ParsedArgs, io: CliIo): Promise<void> {
   writeLine(io.stdout, `Recent days: ${parsed.recentDays ?? "all"}`);
   writeLine(io.stdout, `Files scanned: ${scanResult.filesScanned}`);
   writeLine(io.stdout, `New observations: ${newObservations.length}`);
+  writeLine(io.stdout, `Economy: ${progression.economyVersion}`);
+  writeLine(io.stdout, `Formula: output-focused`);
+  writeLine(io.stdout, `Level curve: milestone`);
+  writeLine(io.stdout, `Daily cap: hard-daily`);
+  writeLine(io.stdout, `Weekly cap: hard-weekly`);
+  writeLine(io.stdout, `Import mode: ${progression.importMode}`);
+  if (progression.importApplied) {
+    writeLine(io.stdout, `Import applied: profile-only`);
+  }
+  writeLine(io.stdout, `Raw XP before caps: ${formatXp(progression.rawXp)}`);
+  writeLine(io.stdout, `Daily capped XP: ${formatXp(progression.dailyCappedXp)}`);
+  writeLine(io.stdout, `Weekly capped XP: ${formatXp(progression.weeklyCappedXp)}`);
+  writeLine(io.stdout, `Final XP after import rules: ${formatXp(progression.finalXp)}`);
   writeLine(io.stdout, `XP gained: ${progression.gainedXp}`);
   writePetSummary(io.stdout, progression.state);
 
@@ -207,6 +220,16 @@ function writeWarnings(stdout: CliIo["stdout"], warnings: ScannerWarnings): void
     stdout,
     `Warnings: malformedJsonLines=${warnings.malformedJsonLines}, unknownTokenShapes=${warnings.unknownTokenShapes}, unreadableFiles=${warnings.unreadableFiles}`
   );
+}
+
+function formatXp(value: number): string {
+  return (Math.round(value * 100) / 100).toString();
+}
+
+function sanitizeErrorMessage(message: string): string {
+  return message
+    .replace(/[A-Za-z]:[\\/][^\r\n]+?(?=(?::\s|$))/g, "[path]")
+    .replace(/(^|\s)(\/[^\r\n]+?)(?=(?::\s|$))/g, "$1[path]");
 }
 
 function defaultStateFile(): string {
