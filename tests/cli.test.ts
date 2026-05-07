@@ -12,6 +12,15 @@ afterEach(async () => {
 });
 
 describe("cli", () => {
+  it("prints help with dashboard command", async () => {
+    const result = await runCliForTest(["help"]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("codex-pet-battle dashboard");
+    expect(result.stdout).toContain("--auto-scan");
+    expect(result.stdout).toContain("Start the local dashboard");
+  });
+
   it("scans synthetic Codex logs, writes state, and avoids duplicate XP", async () => {
     const root = await makeTempDir();
     const codexHome = await createCodexHome(root, [
@@ -225,6 +234,37 @@ describe("cli", () => {
 
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("status command does not scan logs");
+  });
+
+  it("rejects dry-run on dashboard because the UI owns scan mode", async () => {
+    const result = await runCliForTest(["dashboard", "--dry-run"]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("dashboard command provides dry-run in the UI");
+  });
+
+  it("rejects auto-scan options on one-shot commands", async () => {
+    const scanResult = await runCliForTest(["scan", "--auto-scan"]);
+    expect(scanResult.code).toBe(1);
+    expect(scanResult.stderr).toContain("scan command runs once");
+
+    const statusResult = await runCliForTest(["status", "--auto-scan"]);
+    expect(statusResult.code).toBe(1);
+    expect(statusResult.stderr).toContain("status command does not start auto scan");
+  });
+
+  it("requires --auto-scan before dashboard auto-scan settings", async () => {
+    const result = await runCliForTest(["dashboard", "--auto-scan-interval", "5"]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("require --auto-scan");
+  });
+
+  it.each(["0", "-1", "1.5", "soon"])("rejects invalid auto-scan interval %s", async (value) => {
+    const result = await runCliForTest(["dashboard", "--auto-scan", "--auto-scan-interval", value]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("--auto-scan-interval must be a positive integer");
   });
 });
 

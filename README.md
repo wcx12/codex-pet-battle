@@ -4,13 +4,14 @@ Codex Pet Battle 是一个给 Codex Pets 做的本地 RPG 养成实验项目。
 
 长期目标是把 Codex 使用过程变成一个小型成长循环：宠物从 Codex 活动和 token 使用量中获得经验，升级后解锁技能和形态，未来再支持账号同步、战斗、排行和反作弊。
 
-当前仓库实现的是第一期本地 CLI MVP。它读取本机 Codex session 日志，只提取 token 使用统计，把新增 token 使用量换算成宠物经验，并写入本地 `pet_state.local.json`。
+当前仓库实现的是本地 CLI + 本地 Dashboard MVP。它读取本机 Codex session 日志，只提取 token 使用统计，把新增 token 使用量换算成宠物经验，并写入本地 `pet_state.local.json`。
 
 ## 当前状态
 
 已经完成：
 
 - 本地 CLI：`scan` 和 `status`
+- 本地 Dashboard：`dashboard`
 - Codex home 自动解析与手动覆盖
 - 扫描 `sessions/**/rollout-*.jsonl`
 - 提取 `token_count` 的 token usage metadata
@@ -21,11 +22,12 @@ Codex Pet Battle 是一个给 Codex Pets 做的本地 RPG 养成实验项目。
 - `scan --dry-run`，预览但不写状态
 - `scan --recent-days <days>`，只统计最近 N 天
 - XP benchmark，用于比较候选经济规则
-- 自动化测试覆盖 scanner、progression、state store、CLI、benchmark 和隐私边界
+- Dashboard API 和静态 UI：状态展示、dry-run、确认式 scan、中英文切换和 Auto Scan
+- 自动化测试覆盖 scanner、progression、state store、CLI、benchmark、Dashboard 和隐私边界
 
 暂未实现：
 
-- UI、动画、宠物 sprite
+- 复杂动画、宠物 sprite 系统
 - 账号、云同步、远程数据库
 - PvP 战斗、匹配、排行榜、反作弊
 - 独立迁移命令和可视化配置面板
@@ -119,6 +121,40 @@ npm run dev -- status --state-file .\tmp.pet_state.local.json
 
 `status` 不接受 `--codex-home`、`--dry-run` 或 `--recent-days`。
 
+### 本地 Dashboard
+
+启动本地 Dashboard：
+
+```powershell
+npm run dev -- dashboard
+```
+
+指定端口：
+
+```powershell
+npm run dev -- dashboard --port 4317
+```
+
+指定 Codex home 和状态文件：
+
+```powershell
+npm run dev -- dashboard --codex-home tests\fixtures\codex-home-basic --state-file .\pet_state.manual.local.json
+```
+
+启动时直接开启自动扫描：
+
+```powershell
+npm run dev -- dashboard --auto-scan --auto-scan-interval 10 --auto-scan-recent-days 30
+```
+
+Dashboard 只绑定 `127.0.0.1`。页面提供宠物等级、XP、技能、hard-v1 economy、lifetime token counters、recent-days 选择、`Dry run`、确认式 `Confirm scan` 和显式开启的 `Auto Scan`。
+
+页面右上角可以在中文和英文之间切换，默认会跟随浏览器语言，并把选择保存在本机 `localStorage`。扫描区域会提示 `Dry run` 只预览、不写状态；`Confirm scan` 会写入当前 state 文件。结果区域会显示导入模式、扫描窗口、新解锁技能、warning 汇总，以及首次导入 `profile-only` 导致本次最终 XP 可能为 0 的说明。hard-v1 的公式、等级曲线、daily/weekly cap、cached input 和最终 XP 等字段旁边都有 `?` 帮助提示。
+
+`Auto Scan` 默认关闭。开启后会立即写入扫描一次，并按设定间隔继续扫描；它会使用开启时选中的 `7 / 30 / 全部` 扫描窗口。自动扫描和手动扫描共享同一个串行锁，自动写入成功后会让旧的手动 dry-run 确认失效，避免在旧预览基础上重复确认。
+
+Dashboard API 不返回 raw observations、processed observation IDs、prompt、response、tool output、raw JSONL 或 Codex home 绝对路径。写操作需要本地页面会话 token，并且 `Confirm scan` 必须先有匹配的 dry-run。
+
 ### 帮助
 
 ```powershell
@@ -133,6 +169,10 @@ npm run dev -- help
 | `--state-file <path>` | `scan`, `status` | 指定本地宠物状态文件。默认是当前目录的 `pet_state.local.json`。 |
 | `--dry-run` | `scan` | 只预览结果，不创建、不写入、不修改状态文件。 |
 | `--recent-days <days>` | `scan` | 只统计最近 `days * 24` 小时内的 token observation。 |
+| `--port <port>` | `dashboard` | 指定本地 Dashboard 端口。默认从 `4317` 开始，冲突时自动尝试后续端口。 |
+| `--auto-scan` | `dashboard` | 启动 Dashboard 时直接开启自动扫描。默认关闭。 |
+| `--auto-scan-interval <minutes>` | `dashboard` | 自动扫描间隔，单位分钟。最小值是 `1`，默认 `10`。必须配合 `--auto-scan`。 |
+| `--auto-scan-recent-days <days\|all>` | `dashboard` | 自动扫描窗口。默认 `30`，也可以传 `all`。必须配合 `--auto-scan`。 |
 
 也可以通过环境变量指定 Codex home：
 
@@ -273,12 +313,15 @@ benchmark 仍保留用于后续调参；正式 `scan` 当前已经切到 hard-v1
 ```text
 src/
   cli.ts
+  scanWorkflow.ts
+  privacy.ts
   codexHomeResolver.ts
   sessionScanner.ts
   progressionEngine.ts
   petStateStore.ts
   types.ts
   economy/
+  dashboard/
 ```
 
 ### `cli.ts`
@@ -286,10 +329,21 @@ src/
 CLI 入口，负责：
 
 - 解析命令和参数
-- 执行 `scan` / `status`
-- 编排 resolver、scanner、state store、progression engine
+- 执行 `scan` / `status` / `dashboard`
+- 编排 scan workflow、status 和 dashboard server
 - 打印用户可读且脱敏的输出
 - 在 `--dry-run` 下保证不写状态
+
+### `scanWorkflow.ts`
+
+CLI 和 Dashboard 共享的 scan 编排层，负责：
+
+- resolve Codex home；
+- 读取或创建内存默认 state；
+- 调用 scanner；
+- 过滤已处理 observations；
+- 调用 progression engine；
+- 根据 dry-run 决定是否写 state。
 
 ### `codexHomeResolver.ts`
 
@@ -354,6 +408,17 @@ scanner 不会返回 prompt、response、tool output、原始 JSONL 行或凭据
 
 状态文件损坏时不会自动覆盖，用户需要先备份或移除旧文件。
 
+### `dashboard/`
+
+本地 Dashboard 模块：
+
+- `dashboardServer.ts`：只绑定 `127.0.0.1` 的本地 server；
+- `dashboardSummary.ts`：把内部 state 和 scan result 转成脱敏 UI summary；
+- `dashboardTypes.ts`：Dashboard API 数据类型；
+- `dashboardAssets.ts`：第一版静态 HTML/CSS/JS。
+
+Dashboard 不直接解析 JSONL，不计算 XP，不返回完整 `PetState`，也不暴露 `processedObservations`。
+
 ### `types.ts`
 
 集中定义核心数据结构：
@@ -380,6 +445,38 @@ CLI
   -> print sanitized summary
 ```
 
+Dashboard dry-run 的流程：
+
+```text
+Browser UI
+  -> local dashboard server
+  -> shared scan workflow with dryRun=true
+  -> return sanitized scan summary
+  -> do not write state
+```
+
+Dashboard confirm scan 的流程：
+
+```text
+Browser UI
+  -> local dashboard server with session token
+  -> require matching previous dry-run
+  -> shared scan workflow with dryRun=false
+  -> write state only through petStateStore
+  -> return sanitized scan summary
+```
+
+Dashboard auto scan 的流程：
+
+```text
+Browser UI or dashboard --auto-scan
+  -> enable local auto-scan controller
+  -> run shared scan workflow with dryRun=false on a timer
+  -> serialize with manual scans through the server scan lock
+  -> clear stale manual dry-run confirmation tickets after auto writes
+  -> expose only sanitized auto-scan status and last summary
+```
+
 `status` 的流程：
 
 ```text
@@ -398,7 +495,7 @@ CLI
 pet_state.local.json
 ```
 
-它被 `.gitignore` 忽略，不应提交到仓库。
+默认状态文件和 `pet_state.*.local.json` 这类手工验收状态文件都会被 `.gitignore` 忽略，不应提交到仓库。
 
 状态大致结构：
 
@@ -459,6 +556,8 @@ pet_state.local.json
 
 CLI warning 只打印计数，不打印原始日志内容。CLI 错误输出会对路径做脱敏。
 
+Dashboard 同样只展示汇总统计和脱敏错误，不展示完整 state 内部字段或 session 路径。
+
 ## Warning 说明
 
 扫描时可能输出：
@@ -503,22 +602,31 @@ npm run test
 - state 读写和损坏 state 安全失败
 - dry-run 遇到新 observations 时仍不写状态
 - CLI 输出和错误输出的隐私边界
+- Dashboard summary 和 API 隐私边界
+- Dashboard dry-run 不写 state
+- Dashboard confirm scan token 和 matching dry-run 保护
+- Dashboard 双语文案、用户说明入口和首次导入字段暴露
+- Dashboard auto scan 启停、参数校验、token 保护、脱敏摘要和旧确认失效
 
 ## 当前限制
 
 - `--recent-days` 是最近 `N * 24` 小时，不是自然日。
 - `--recent-days` 激活时，缺失或不可解析 timestamp 的事件会被忽略。
-- 当前没有 UI，只有 CLI。
+- 当前 Dashboard 是本地静态 UI，还没有复杂动画或 sprite 系统。
 - 当前没有云同步或战斗系统。
 - scanner 依赖当前可识别的 Codex `token_count` usage 结构，未来 Codex 日志结构变化时可能需要适配。
 - schema v1 迁移目前是读取时内存迁移；还没有单独的显式迁移命令。
 
 ## 推荐下一步
 
-下一步建议先做真实 dry-run 验证和 fixture 手工验收：
+当前 Dashboard、双语说明和 Auto Scan 已经完成自动化测试与浏览器验收。下一步建议进入 Phase 2.1：宠物视觉、XP 动画和技能解锁反馈。
 
-```powershell
-npm run dev -- scan --dry-run --recent-days 30
-```
+Phase 2.1 的目标产物：
 
-如果输出符合预期，再进入 Phase 2：宠物状态展示 UI、轻量动画和本地交互界面。
+- `spritesheet.webp`
+- `pet.json`
+- contact sheet
+- 预览视频
+- validation/review 报告
+
+Dashboard 接入后，宠物状态会和操作联动：空闲时 `idle`，自动扫描开启但未运行时 `waiting`，扫描中 `running`，扫描失败 `failed`，获得 XP 或升级时 `jumping` / `waving`。

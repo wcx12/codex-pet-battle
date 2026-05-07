@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { resolveCodexHome } from "../src/codexHomeResolver.js";
 import { UserFacingError } from "../src/errors.js";
+import { sanitizeErrorMessage } from "../src/privacy.js";
 import { economyCandidates } from "../src/economy/candidates.js";
 import { simulateEconomy, sumLifetimeUsage } from "../src/economy/simulateEconomy.js";
 import { scanSessions } from "../src/sessionScanner.js";
@@ -233,12 +234,6 @@ function round(value: number): number {
 
 function daysBefore(now: Date, days: number): Date {
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-}
-
-function sanitizeErrorMessage(message: string): string {
-  return message
-    .replace(/[A-Za-z]:[\\/][^\r\n]+?(?=(?::\s|$))/g, "[path]")
-    .replace(/(^|\s)(\/[^\r\n]+?)(?=(?::\s|$))/g, "$1[path]");
 }
 
 main().then((exitCode) => {
