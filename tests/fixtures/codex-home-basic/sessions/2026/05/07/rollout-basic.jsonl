@@ -1,0 +1,2 @@
+{"type":"event_msg","timestamp":"2026-05-07T00:00:00.000Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":250,"reasoning_output_tokens":250,"total_tokens":1500},"total_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":250,"reasoning_output_tokens":250,"total_tokens":1500}}}}
+{"type":"response_item","timestamp":"2026-05-07T00:00:01.000Z","payload":{"text":"SECRET_PROMPT_SHOULD_NOT_LEAK sk-test-privacy TOOL_OUTPUT_SHOULD_NOT_LEAK"}}

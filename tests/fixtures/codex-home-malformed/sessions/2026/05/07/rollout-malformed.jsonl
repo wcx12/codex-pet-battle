@@ -1,0 +1,3 @@
+{ this is not valid json
+{"type":"event_msg","timestamp":"2026-05-07T00:00:00.000Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":"bad","cached_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":0}}}}
+{"type":"event_msg","timestamp":"2026-05-07T00:00:02.000Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":10},"total_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":10}}}}

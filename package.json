@@ -1,0 +1,23 @@
+{
+  "name": "codex-pet-battle",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local CLI MVP for Codex Pet Battle.",
+  "type": "module",
+  "bin": {
+    "codex-pet-battle": "./dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run build && npm run test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
