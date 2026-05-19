@@ -16,6 +16,7 @@ export interface BattleMove {
 export interface BattleCombatant {
   id: BattleSide;
   name: string;
+  visualId?: string;
   level: number;
   affinity: BattleAffinity;
   maxHp: number;

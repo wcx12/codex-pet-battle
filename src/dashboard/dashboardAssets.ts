@@ -85,28 +85,51 @@ export const dashboardHtml = `<!doctype html>
             <button id="practiceBattleButton" class="button primary" type="button">Practice battle</button>
           </div>
           <div id="battleArena" class="battle-arena" aria-label="Battle arena">
-            <div id="battlePetCard" class="combatant-card pet-side">
-              <div>
-                <strong id="battlePetName">Pathy</strong>
-                <span id="battlePetLevel">L1</span>
+            <div class="arena-field">
+              <div class="arena-backdrop" aria-hidden="true"></div>
+              <div id="battlePetFighter" class="battle-fighter pet-fighter">
+                <div id="battlePetSprite" class="battle-fighter-sprite" aria-hidden="true"></div>
+                <div class="battle-pet-fallback" aria-hidden="true">
+                  <span class="pet-eye left"></span>
+                  <span class="pet-eye right"></span>
+                  <span class="pet-mouth"></span>
+                </div>
+                <div class="battle-fighter-shadow" aria-hidden="true"></div>
               </div>
-              <div class="hp-track small" aria-hidden="true">
-                <div id="battlePetHpFill" class="hp-fill"></div>
+              <div id="battleFxLayer" class="battle-fx-layer" aria-hidden="true"></div>
+              <div id="battleOpponentFighter" class="battle-fighter opponent-fighter">
+                <div class="opponent-sprite" aria-hidden="true">
+                  <span class="opponent-eye left"></span>
+                  <span class="opponent-eye right"></span>
+                  <span class="opponent-core"></span>
+                </div>
+                <div class="battle-fighter-shadow" aria-hidden="true"></div>
               </div>
-              <span id="battlePetHpText">--</span>
+              <div class="arena-versus">
+                <span id="battleCue" class="battle-cue">VS</span>
+              </div>
             </div>
-            <div class="arena-versus">
-              <span id="battleCue" class="battle-cue">VS</span>
-            </div>
-            <div id="battleOpponentCard" class="combatant-card opponent-side">
-              <div>
-                <strong id="battleOpponentName">Practice Rival</strong>
-                <span id="battleOpponentLevel">L1</span>
+            <div class="arena-hud">
+              <div id="battlePetCard" class="combatant-card pet-side">
+                <div>
+                  <strong id="battlePetName">Pathy</strong>
+                  <span id="battlePetLevel">L1</span>
+                </div>
+                <div class="hp-track small" aria-hidden="true">
+                  <div id="battlePetHpFill" class="hp-fill"></div>
+                </div>
+                <span id="battlePetHpText">--</span>
               </div>
-              <div class="hp-track small" aria-hidden="true">
-                <div id="battleOpponentHpFill" class="hp-fill"></div>
+              <div id="battleOpponentCard" class="combatant-card opponent-side">
+                <div>
+                  <strong id="battleOpponentName">Practice Rival</strong>
+                  <span id="battleOpponentLevel">L1</span>
+                </div>
+                <div class="hp-track small" aria-hidden="true">
+                  <div id="battleOpponentHpFill" class="hp-fill"></div>
+                </div>
+                <span id="battleOpponentHpText">--</span>
               </div>
-              <span id="battleOpponentHpText">--</span>
             </div>
           </div>
           <div>
@@ -1144,15 +1167,69 @@ button {
 
 .battle-arena {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 8px;
-  align-items: center;
+  gap: 10px;
   margin: 12px 0 14px;
   border: 2px solid rgba(49, 81, 63, 0.38);
   border-radius: 8px;
   padding: 10px;
+  background: #d9bd66;
+}
+
+.arena-field {
+  position: relative;
+  min-height: 238px;
+  overflow: hidden;
+  border: 2px solid rgba(49, 81, 63, 0.42);
+  border-radius: 8px;
   background:
-    linear-gradient(180deg, #e9d18f 0 46%, #7cad67 47% 56%, #d9bd66 57% 100%);
+    linear-gradient(180deg, #8ed5c8 0 42%, #7cad67 43% 52%, #d9bd66 53% 100%);
+  box-shadow: inset 0 -28px 0 rgba(72, 88, 43, 0.13);
+  isolation: isolate;
+}
+
+.arena-field::before {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 28px;
+  height: 44px;
+  border: 2px solid rgba(49, 81, 63, 0.18);
+  border-radius: 50%;
+  background: rgba(255, 249, 223, 0.24);
+  transform: perspective(160px) rotateX(58deg);
+  z-index: 0;
+}
+
+.arena-field::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent 0 18%, rgba(255, 249, 223, 0.12) 18% 19%, transparent 19% 81%, rgba(255, 249, 223, 0.12) 81% 82%, transparent 82%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.25), transparent 36%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.arena-backdrop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 20px;
+  height: 76px;
+  opacity: 0.54;
+  background:
+    linear-gradient(135deg, transparent 0 38%, rgba(49, 81, 63, 0.2) 38% 52%, transparent 52%),
+    linear-gradient(45deg, transparent 0 44%, rgba(49, 81, 63, 0.16) 44% 58%, transparent 58%);
+  background-size: 160px 76px, 210px 76px;
+  z-index: 0;
+}
+
+.arena-hud {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 .combatant-card {
@@ -1211,6 +1288,615 @@ button {
   font-weight: 850;
 }
 
+.battle-fighter {
+  position: absolute;
+  bottom: 30px;
+  display: grid;
+  place-items: end center;
+  width: 128px;
+  height: 142px;
+  z-index: 3;
+  transform: translateX(0);
+  transform-origin: 50% 90%;
+  transition: filter 120ms ease;
+}
+
+.pet-fighter {
+  left: 6%;
+}
+
+.opponent-fighter {
+  right: 6%;
+}
+
+.battle-fighter.acting.pet-fighter {
+  animation: pet-cast 440ms ease;
+}
+
+.battle-fighter.acting.opponent-fighter {
+  animation: opponent-cast 440ms ease;
+}
+
+.battle-fighter.hit {
+  animation: fighter-hit 420ms ease;
+  filter: saturate(1.28) contrast(1.08);
+}
+
+.battle-fighter.guarding {
+  animation: fighter-guard 540ms ease;
+}
+
+.battle-fighter.missed {
+  animation: fighter-miss 380ms ease;
+  filter: saturate(0.78);
+}
+
+.battle-fighter-shadow {
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: 0;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(25, 35, 21, 0.26);
+  filter: blur(1px);
+  z-index: 0;
+}
+
+.battle-fighter-sprite {
+  display: none;
+  width: 116px;
+  height: 126px;
+  background-repeat: no-repeat;
+  background-size: calc(116px * 8) calc(126px * 9);
+  image-rendering: pixelated;
+  filter: drop-shadow(0 9px 0 rgba(31, 41, 28, 0.18));
+  z-index: 1;
+}
+
+.battle-fighter-sprite.ready {
+  display: block;
+}
+
+.battle-fighter-sprite.ready + .battle-pet-fallback {
+  display: none;
+}
+
+.battle-pet-fallback,
+.opponent-sprite {
+  position: relative;
+  z-index: 1;
+  width: 78px;
+  height: 88px;
+  border: 3px solid #0f4c49;
+  border-radius: 28px 28px 22px 22px;
+  background: linear-gradient(180deg, #63bcb2, #167b73);
+  box-shadow: inset 0 -10px 0 rgba(13, 88, 83, 0.22);
+}
+
+.battle-pet-fallback::before,
+.battle-pet-fallback::after {
+  content: "";
+  position: absolute;
+  bottom: -10px;
+  width: 24px;
+  height: 16px;
+  border-radius: 6px;
+  background: #0f4c49;
+}
+
+.battle-pet-fallback::before {
+  left: 10px;
+}
+
+.battle-pet-fallback::after {
+  right: 10px;
+}
+
+.opponent-sprite {
+  width: 82px;
+  height: 82px;
+  border-color: #503818;
+  border-radius: 18px 24px 18px 28px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.35) 0 18%, transparent 18%),
+    linear-gradient(180deg, #d9a846, #9b6a23);
+  box-shadow: inset 0 -10px 0 rgba(80, 56, 24, 0.18);
+  transform: rotate(-4deg);
+}
+
+.opponent-sprite::before,
+.opponent-sprite::after {
+  content: "";
+  position: absolute;
+  bottom: -9px;
+  width: 26px;
+  height: 14px;
+  border-radius: 5px;
+  background: #503818;
+}
+
+.opponent-sprite::before {
+  left: 11px;
+}
+
+.opponent-sprite::after {
+  right: 11px;
+}
+
+.opponent-eye {
+  position: absolute;
+  top: 31px;
+  width: 9px;
+  height: 11px;
+  border-radius: 50%;
+  background: #1b1d17;
+  z-index: 2;
+}
+
+.opponent-eye.left {
+  left: 22px;
+}
+
+.opponent-eye.right {
+  right: 22px;
+}
+
+.opponent-core {
+  position: absolute;
+  left: 50%;
+  bottom: 21px;
+  width: 23px;
+  height: 8px;
+  border-radius: 999px;
+  background: #503818;
+  transform: translateX(-50%);
+}
+
+.opponent-fighter[data-visual="static_mote"] .opponent-sprite {
+  border-color: #6f4813;
+  border-radius: 50% 45% 46% 52%;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.5) 0 16%, transparent 16%),
+    radial-gradient(circle at 62% 24%, #fff7a8 0 12%, transparent 13%),
+    linear-gradient(180deg, #f3c24e, #b97022);
+  transform: rotate(7deg);
+}
+
+.opponent-fighter[data-visual="cache_shell"] .opponent-sprite {
+  border-color: #31513f;
+  border-radius: 18px 18px 30px 30px;
+  background:
+    linear-gradient(90deg, rgba(255, 249, 223, 0.38) 0 14%, transparent 14% 86%, rgba(255, 249, 223, 0.24) 86%),
+    linear-gradient(180deg, #8ec76f, #507744);
+  transform: rotate(0deg);
+}
+
+.opponent-fighter[data-visual="trace_lancer"] .opponent-sprite {
+  width: 70px;
+  height: 98px;
+  border-color: #1c5d66;
+  border-radius: 18px 18px 12px 12px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.42) 0 18%, transparent 18%),
+    linear-gradient(180deg, #8fd1c4, #267884);
+  transform: skewX(-5deg);
+}
+
+.opponent-fighter[data-visual="loop_sentinel"] .opponent-sprite {
+  width: 88px;
+  height: 90px;
+  border-color: #31513f;
+  border-radius: 16px;
+  background:
+    linear-gradient(45deg, transparent 0 18%, rgba(255, 249, 223, 0.24) 18% 30%, transparent 30%),
+    linear-gradient(180deg, #9eb070, #4f6849);
+  transform: rotate(2deg);
+}
+
+.opponent-fighter[data-visual="null_mirror"] .opponent-sprite {
+  border-color: #2b314a;
+  border-radius: 20px 30px 20px 30px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.34) 0 16%, transparent 16%),
+    linear-gradient(180deg, #6f7aa6, #2b314a);
+  transform: rotate(-8deg);
+}
+
+.opponent-fighter[data-visual="patch_core"] .opponent-sprite {
+  border-color: #6f2f1c;
+  border-radius: 22px 18px 26px 18px;
+  background:
+    radial-gradient(circle at 58% 38%, #fff7a8 0 13%, transparent 14%),
+    linear-gradient(180deg, #e78938, #aa4630);
+  transform: rotate(5deg) scale(1.06);
+}
+
+.battle-fx-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.move-effect,
+.impact-effect,
+.miss-effect {
+  position: absolute;
+  pointer-events: none;
+}
+
+.move-effect.projectile {
+  top: 46%;
+  width: 50px;
+  height: 26px;
+  transform-origin: 50% 50%;
+}
+
+.move-effect.projectile.from-pet {
+  left: 23%;
+  animation: projectile-pet 420ms ease-out forwards;
+}
+
+.move-effect.projectile.from-opponent {
+  right: 23%;
+  animation: projectile-opponent 420ms ease-out forwards;
+}
+
+.move-effect.projectile span,
+.impact-effect span,
+.miss-effect span {
+  position: absolute;
+  display: block;
+}
+
+.move-effect.effect-quick {
+  width: 62px;
+  height: 42px;
+}
+
+.move-effect.effect-quick span {
+  width: 24px;
+  height: 24px;
+  border: 3px solid #f7f0b8;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 3px #2b8e87, 0 0 0 2px rgba(43, 142, 135, 0.18);
+  animation: quick-pulse 360ms ease-out forwards;
+}
+
+.move-effect.effect-quick span:nth-child(2) {
+  left: 18px;
+  top: 7px;
+  animation-delay: 45ms;
+}
+
+.move-effect.effect-quick span:nth-child(3) {
+  left: 36px;
+  top: 14px;
+  animation-delay: 90ms;
+}
+
+.move-effect.effect-spark {
+  width: 92px;
+  height: 50px;
+  filter: drop-shadow(0 0 5px rgba(243, 194, 78, 0.48));
+}
+
+.move-effect.effect-spark span {
+  width: 50px;
+  height: 18px;
+  border: 2px solid #6f4813;
+  background: #f3c24e;
+  clip-path: polygon(0 48%, 30% 48%, 22% 0, 72% 56%, 45% 56%, 57% 100%);
+  box-shadow: 0 0 0 2px rgba(255, 249, 223, 0.34);
+  animation: spark-jag 420ms steps(2, end) forwards;
+}
+
+.move-effect.effect-spark span:nth-child(2) {
+  left: 22px;
+  top: 16px;
+  transform: rotate(22deg);
+  animation-delay: 55ms;
+}
+
+.move-effect.effect-spark span:nth-child(3) {
+  left: 48px;
+  top: 2px;
+  transform: rotate(-18deg);
+  animation-delay: 110ms;
+}
+
+.move-effect.effect-scan {
+  width: 96px;
+  height: 58px;
+  border: 3px solid rgba(23, 93, 102, 0.7);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 4px rgba(255, 249, 223, 0.22);
+  animation: scan-frame 460ms ease-in-out forwards;
+}
+
+.move-effect.effect-scan span {
+  left: 7px;
+  right: 7px;
+  height: 6px;
+  border: 1px solid rgba(23, 32, 21, 0.22);
+  border-radius: 999px;
+  background: rgba(143, 209, 196, 0.8);
+  box-shadow: 0 0 0 2px rgba(255, 249, 223, 0.35);
+  animation: scan-line 460ms ease-in-out forwards;
+}
+
+.move-effect.effect-scan span:nth-child(2) {
+  top: 17px;
+  animation-delay: 40ms;
+}
+
+.move-effect.effect-scan span:nth-child(3) {
+  top: 32px;
+  animation-delay: 80ms;
+}
+
+.move-effect.effect-scan span:nth-child(4) {
+  top: 44px;
+  width: 32px;
+  opacity: 0.76;
+  animation-delay: 120ms;
+}
+
+.move-effect.effect-aura {
+  width: 96px;
+  height: 76px;
+  filter: drop-shadow(0 0 5px rgba(22, 133, 116, 0.34));
+}
+
+.move-effect.effect-aura span {
+  width: 34px;
+  height: 34px;
+  border: 3px solid #168574;
+  border-radius: 8px;
+  background: rgba(232, 240, 200, 0.75);
+  transform: rotate(45deg);
+  animation: aura-tile 420ms ease-out forwards;
+}
+
+.move-effect.effect-aura span:nth-child(2) {
+  left: 31px;
+  top: 22px;
+  animation-delay: 55ms;
+}
+
+.move-effect.effect-aura span:nth-child(3) {
+  left: 62px;
+  top: 4px;
+  animation-delay: 110ms;
+}
+
+.move-effect.effect-burst {
+  width: 104px;
+  height: 76px;
+  filter: drop-shadow(0 0 6px rgba(199, 68, 47, 0.38));
+}
+
+.move-effect.effect-burst span {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #6f4813;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff9df 0 30%, #f3c24e 31% 62%, #c7442f 63%);
+  box-shadow: 0 0 0 3px rgba(199, 68, 47, 0.18);
+  animation: burst-orb 420ms ease-out forwards;
+}
+
+.move-effect.effect-burst span:nth-child(2) {
+  left: 25px;
+  top: 22px;
+  animation-delay: 45ms;
+}
+
+.move-effect.effect-burst span:nth-child(3) {
+  left: 54px;
+  top: 5px;
+  animation-delay: 90ms;
+}
+
+.move-effect.effect-burst span:nth-child(4) {
+  left: 68px;
+  top: 34px;
+  width: 22px;
+  height: 22px;
+  animation-delay: 135ms;
+}
+
+.move-effect.effect-burst span:nth-child(5) {
+  left: 8px;
+  top: 6px;
+  width: 20px;
+  height: 20px;
+  animation-delay: 180ms;
+}
+
+.move-effect.effect-null {
+  width: 94px;
+  height: 64px;
+}
+
+.move-effect.effect-null span {
+  border: 3px solid #2b314a;
+  border-radius: 50%;
+  background: rgba(111, 122, 166, 0.35);
+  box-shadow: inset 0 0 0 4px rgba(255, 249, 223, 0.12);
+  animation: null-ripple 460ms ease-in-out forwards;
+}
+
+.move-effect.effect-null span:nth-child(1) {
+  inset: 6px 36px 34px 8px;
+}
+
+.move-effect.effect-null span:nth-child(2) {
+  inset: 16px 16px 14px 32px;
+  animation-delay: 60ms;
+}
+
+.move-effect.effect-null span:nth-child(3) {
+  left: 48px;
+  top: 5px;
+  width: 30px;
+  height: 30px;
+  animation-delay: 120ms;
+}
+
+.move-effect.effect-null span:nth-child(4) {
+  left: 10px;
+  top: 34px;
+  width: 38px;
+  height: 18px;
+  border-radius: 999px;
+  animation-delay: 180ms;
+}
+
+.move-effect.guard {
+  bottom: 52px;
+  width: 112px;
+  height: 112px;
+  border: 4px solid rgba(22, 133, 116, 0.84);
+  border-radius: 28px;
+  box-shadow: inset 0 0 0 5px rgba(255, 249, 223, 0.5), 0 0 0 4px rgba(22, 133, 116, 0.16);
+  animation: shield-pop 520ms ease-out forwards;
+}
+
+.move-effect.guard span {
+  position: absolute;
+  display: block;
+  width: 18px;
+  height: 18px;
+  border: 3px solid rgba(49, 81, 63, 0.42);
+  border-radius: 5px;
+  background: #e8f0c8;
+  transform: rotate(45deg);
+  animation: shield-node 520ms ease-out forwards;
+}
+
+.move-effect.guard span:nth-child(1) {
+  left: 12px;
+  top: 18px;
+}
+
+.move-effect.guard span:nth-child(2) {
+  right: 12px;
+  top: 18px;
+  animation-delay: 50ms;
+}
+
+.move-effect.guard span:nth-child(3) {
+  left: 12px;
+  bottom: 18px;
+  animation-delay: 100ms;
+}
+
+.move-effect.guard span:nth-child(4) {
+  right: 12px;
+  bottom: 18px;
+  animation-delay: 150ms;
+}
+
+.move-effect.guard.from-pet {
+  left: 8%;
+}
+
+.move-effect.guard.from-opponent {
+  right: 8%;
+}
+
+.impact-effect {
+  top: 42%;
+  width: 68px;
+  height: 68px;
+  animation: impact-pop 380ms ease-out forwards;
+}
+
+.impact-effect.target-opponent {
+  right: 14%;
+}
+
+.impact-effect.target-pet {
+  left: 14%;
+}
+
+.impact-effect span {
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 34px;
+  border-radius: 999px;
+  background: #fff9df;
+  box-shadow: 0 0 0 2px rgba(49, 81, 63, 0.28);
+  transform-origin: 50% 0;
+}
+
+.impact-effect span:nth-child(1) { transform: rotate(0deg) translateY(-30px); }
+.impact-effect span:nth-child(2) { transform: rotate(60deg) translateY(-30px); }
+.impact-effect span:nth-child(3) { transform: rotate(120deg) translateY(-30px); }
+.impact-effect span:nth-child(4) { transform: rotate(180deg) translateY(-30px); }
+.impact-effect span:nth-child(5) { transform: rotate(240deg) translateY(-30px); }
+.impact-effect span:nth-child(6) { transform: rotate(300deg) translateY(-30px); }
+
+.impact-effect.effect-spark span {
+  background: #f3c24e;
+}
+
+.impact-effect.effect-scan span,
+.impact-effect.effect-quick span {
+  background: #8fd1c4;
+}
+
+.impact-effect.effect-aura span {
+  background: #8ec76f;
+}
+
+.impact-effect.effect-burst span {
+  background: #c7442f;
+}
+
+.impact-effect.effect-null span {
+  background: #6f7aa6;
+}
+
+.miss-effect {
+  top: 37%;
+  width: 62px;
+  height: 44px;
+  animation: miss-fade 390ms ease-out forwards;
+}
+
+.miss-effect.from-pet {
+  left: 18%;
+}
+
+.miss-effect.from-opponent {
+  right: 18%;
+}
+
+.miss-effect span {
+  width: 28px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 249, 223, 0.88);
+  box-shadow: 0 0 0 2px rgba(49, 81, 63, 0.22);
+}
+
+.miss-effect span:nth-child(1) {
+  left: 10px;
+  top: 8px;
+  transform: rotate(-18deg);
+}
+
+.miss-effect span:nth-child(2) {
+  left: 22px;
+  top: 22px;
+  transform: rotate(18deg);
+}
+
 .hp-track.small {
   height: 12px;
   overflow: hidden;
@@ -1231,23 +1917,29 @@ button {
 }
 
 .arena-versus {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 5;
   color: #172015;
   font-size: 12px;
   font-weight: 950;
   text-align: center;
+  transform: translate(-50%, -50%);
 }
 
 .battle-cue {
   display: inline-grid;
-  min-width: 30px;
-  min-height: 30px;
+  min-width: 36px;
+  min-height: 36px;
   place-items: center;
-  border: 2px solid rgba(49, 81, 63, 0.38);
+  border: 2px solid rgba(49, 81, 63, 0.45);
   border-radius: 999px;
-  background: rgba(255, 249, 223, 0.9);
+  background: rgba(255, 249, 223, 0.92);
   color: #172015;
   font-size: 11px;
   font-weight: 950;
+  box-shadow: 0 3px 0 rgba(49, 81, 63, 0.24);
 }
 
 .battle-cue.active {
@@ -1354,6 +2046,115 @@ button {
   45% { transform: scale(1.12); }
 }
 
+@keyframes pet-cast {
+  0%, 100% { transform: translateX(0) translateY(0) scale(1); }
+  34% { transform: translateX(18px) translateY(-6px) scale(1.04); }
+  58% { transform: translateX(11px) translateY(-2px) scale(0.98); }
+}
+
+@keyframes opponent-cast {
+  0%, 100% { transform: translateX(0) translateY(0) scale(1); }
+  34% { transform: translateX(-18px) translateY(-6px) scale(1.04); }
+  58% { transform: translateX(-11px) translateY(-2px) scale(0.98); }
+}
+
+@keyframes fighter-hit {
+  0%, 100% { transform: translateX(0); }
+  18% { transform: translateX(-7px) rotate(-2deg); }
+  38% { transform: translateX(7px) rotate(2deg); }
+  58% { transform: translateX(-5px) rotate(-1deg); }
+  78% { transform: translateX(4px) rotate(1deg); }
+}
+
+@keyframes fighter-guard {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  45% { transform: scale(1.06); filter: brightness(1.16); }
+}
+
+@keyframes fighter-miss {
+  0%, 100% { transform: translateY(0); }
+  45% { transform: translateY(8px) scale(0.98); }
+}
+
+@keyframes projectile-pet {
+  0% { opacity: 0; transform: translate(0, 8px) scale(0.8); }
+  15% { opacity: 1; }
+  100% { opacity: 0.92; transform: translate(152px, -22px) scale(1.04); }
+}
+
+@keyframes projectile-opponent {
+  0% { opacity: 0; transform: translate(0, 8px) scale(0.8) rotateY(180deg); }
+  15% { opacity: 1; }
+  100% { opacity: 0.92; transform: translate(-152px, -22px) scale(1.04) rotateY(180deg); }
+}
+
+@keyframes quick-pulse {
+  0% { opacity: 0; transform: scale(0.45); }
+  35% { opacity: 1; }
+  100% { opacity: 0.2; transform: scale(1.18); }
+}
+
+@keyframes scan-line {
+  0% { opacity: 0; transform: translateX(-18px) scaleX(0.62); }
+  30% { opacity: 1; }
+  100% { opacity: 0.2; transform: translateX(18px) scaleX(1); }
+}
+
+@keyframes spark-jag {
+  0% { opacity: 0; transform: translateY(7px) rotate(-10deg) scale(0.7); }
+  35% { opacity: 1; transform: translateY(0) rotate(8deg) scale(1); }
+  70% { opacity: 1; transform: translateY(-4px) rotate(-8deg) scale(1.06); }
+  100% { opacity: 0.2; transform: translateY(-8px) rotate(6deg) scale(0.9); }
+}
+
+@keyframes scan-frame {
+  0% { opacity: 0; transform: scaleX(0.72) scaleY(0.82); }
+  35% { opacity: 1; transform: scaleX(1.04) scaleY(1); }
+  100% { opacity: 0.16; transform: scaleX(1.12) scaleY(1.04); }
+}
+
+@keyframes aura-tile {
+  0% { opacity: 0; transform: translateY(12px) rotate(45deg) scale(0.62); }
+  38% { opacity: 1; }
+  100% { opacity: 0.18; transform: translateY(-8px) rotate(135deg) scale(1.06); }
+}
+
+@keyframes burst-orb {
+  0% { opacity: 0; transform: scale(0.52); }
+  35% { opacity: 1; }
+  100% { opacity: 0.2; transform: scale(1.22); }
+}
+
+@keyframes shield-pop {
+  0% { opacity: 0; transform: scale(0.62) rotate(0deg); }
+  35% { opacity: 1; }
+  100% { opacity: 0.12; transform: scale(1.18) rotate(8deg); }
+}
+
+@keyframes shield-node {
+  0% { opacity: 0; transform: rotate(45deg) scale(0.4); }
+  35% { opacity: 1; }
+  100% { opacity: 0.2; transform: rotate(135deg) scale(1.16); }
+}
+
+@keyframes null-ripple {
+  0% { opacity: 0; transform: scale(0.52) rotate(0deg); }
+  35% { opacity: 1; }
+  100% { opacity: 0.12; transform: scale(1.28) rotate(90deg); }
+}
+
+@keyframes impact-pop {
+  0% { opacity: 0; transform: scale(0.4); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.18); }
+}
+
+@keyframes miss-fade {
+  0% { opacity: 0; transform: translateY(8px); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-12px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .combatant-card,
   .combatant-card.acting.pet-side,
@@ -1361,6 +2162,18 @@ button {
   .combatant-card.hit,
   .combatant-card.guarding,
   .combatant-card.missed,
+  .battle-fighter,
+  .battle-fighter.acting.pet-fighter,
+  .battle-fighter.acting.opponent-fighter,
+  .battle-fighter.hit,
+  .battle-fighter.guarding,
+  .battle-fighter.missed,
+  .move-effect,
+  .move-effect span,
+  .impact-effect,
+  .impact-effect span,
+  .miss-effect,
+  .miss-effect span,
   .battle-cue.active,
   .hp-fill {
     animation: none;
@@ -1444,6 +2257,38 @@ button {
 
   .pet-sprite-mount {
     transform: translateY(12px) scale(0.98);
+  }
+
+  .arena-field {
+    min-height: 292px;
+  }
+
+  .arena-hud {
+    grid-template-columns: 1fr;
+  }
+
+  .battle-fighter {
+    bottom: 34px;
+    width: 112px;
+    height: 128px;
+  }
+
+  .pet-fighter {
+    left: 8%;
+  }
+
+  .opponent-fighter {
+    right: 8%;
+  }
+
+  .battle-fighter-sprite {
+    width: 102px;
+    height: 111px;
+    background-size: calc(102px * 8) calc(111px * 9);
+  }
+
+  .arena-versus {
+    top: 52%;
   }
 }`;
 
@@ -1904,6 +2749,10 @@ const els = {
   battleDifficulty: document.getElementById("battleDifficulty"),
   battleMove: document.getElementById("battleMove"),
   practiceBattleButton: document.getElementById("practiceBattleButton"),
+  battlePetFighter: document.getElementById("battlePetFighter"),
+  battlePetSprite: document.getElementById("battlePetSprite"),
+  battleFxLayer: document.getElementById("battleFxLayer"),
+  battleOpponentFighter: document.getElementById("battleOpponentFighter"),
   battlePetCard: document.getElementById("battlePetCard"),
   battlePetName: document.getElementById("battlePetName"),
   battlePetLevel: document.getElementById("battlePetLevel"),
@@ -2399,6 +3248,8 @@ async function loadPetSprite(petId) {
     state.petManifest = manifest;
     els.petSprite.style.backgroundImage = "url('" + manifest.spritesheetUrl + "')";
     els.petSprite.classList.add("ready");
+    els.battlePetSprite.style.backgroundImage = "url('" + manifest.spritesheetUrl + "')";
+    els.battlePetSprite.classList.add("ready");
     els.petAssetStatus.textContent = t("petReady").replace("{pet}", manifest.displayName);
     if (state.lastStatus) {
       renderStatus(state.lastStatus);
@@ -2409,6 +3260,8 @@ async function loadPetSprite(petId) {
     state.petManifest = null;
     els.petSprite.style.backgroundImage = "";
     els.petSprite.classList.remove("ready");
+    els.battlePetSprite.style.backgroundImage = "";
+    els.battlePetSprite.classList.remove("ready");
     els.petAssetStatus.textContent = t("petUnavailable");
   }
 }
@@ -2497,10 +3350,15 @@ function showPetFailure() {
 
 function renderPetFrame() {
   const row = petRows[state.petMotion] ?? petRows.idle;
-  const width = els.petSprite.clientWidth || 124;
-  const height = els.petSprite.clientHeight || 134;
   const frame = state.prefersReducedMotion ? 0 : state.petFrameIndex % row.frames;
-  els.petSprite.style.backgroundPosition = "-" + (frame * width) + "px -" + (row.row * height) + "px";
+  renderSpriteFrame(els.petSprite, row, frame, 124, 134);
+  renderSpriteFrame(els.battlePetSprite, row, frame, 102, 111);
+}
+
+function renderSpriteFrame(element, row, frame, fallbackWidth, fallbackHeight) {
+  const width = element.clientWidth || fallbackWidth;
+  const height = element.clientHeight || fallbackHeight;
+  element.style.backgroundPosition = "-" + (frame * width) + "px -" + (row.row * height) + "px";
 }
 
 function schedulePetFrame() {
@@ -2635,6 +3493,7 @@ function renderBattleArena(status, battle) {
 function renderBattleCombatants(pet, opponent) {
   els.battlePetName.textContent = pet.name;
   els.battlePetLevel.textContent = "L" + pet.level;
+  els.battleOpponentFighter.dataset.visual = opponent.visualId ?? "practice_rival";
   updateHpMeter(
     els.battlePetHpFill,
     els.battlePetHpText,
@@ -2832,7 +3691,12 @@ async function playBattleLogEntry(battle, entry, playbackState) {
   clearBattleCardEffects();
   const actorCard = entry.actor === "pet" ? els.battlePetCard : els.battleOpponentCard;
   const targetCard = entry.actor === "pet" ? els.battleOpponentCard : els.battlePetCard;
-  actorCard.classList.add(entry.category === "guard" ? "guarding" : "acting");
+  const actorFighter = entry.actor === "pet" ? els.battlePetFighter : els.battleOpponentFighter;
+  const targetFighter = entry.actor === "pet" ? els.battleOpponentFighter : els.battlePetFighter;
+  const actorStateClass = entry.category === "guard" ? "guarding" : "acting";
+  actorCard.classList.add(actorStateClass);
+  actorFighter.classList.add(actorStateClass);
+  renderBattleMoveEffect(entry);
   setBattleCue(entry.category === "guard"
     ? t("battleCueGuard")
     : entry.missed
@@ -2840,14 +3704,19 @@ async function playBattleLogEntry(battle, entry, playbackState) {
       : t("battleCueHit"));
   appendBattleLogEntry(entry, true);
 
-  await waitForBattleFrame(180);
+  await waitForBattleFrame(220);
 
   if (entry.category !== "guard") {
     if (entry.missed) {
       actorCard.classList.remove("acting");
+      actorFighter.classList.remove("acting");
       actorCard.classList.add("missed");
+      actorFighter.classList.add("missed");
+      renderBattleMissEffect(entry);
     } else {
       targetCard.classList.add("hit");
+      targetFighter.classList.add("hit");
+      renderBattleImpactEffect(entry);
       if (entry.actor === "pet") {
         playbackState.opponentHp = entry.targetHp;
       } else {
@@ -2861,7 +3730,7 @@ async function playBattleLogEntry(battle, entry, playbackState) {
     }
   }
 
-  await waitForBattleFrame(360);
+  await waitForBattleFrame(430);
 }
 
 function appendBattleLogEntry(entry, latest = false) {
@@ -2897,10 +3766,86 @@ function formatBattleLogEntry(entry) {
   });
 }
 
+function battleMoveEffectKind(entry) {
+  if (entry.category === "guard") {
+    return "guard";
+  }
+  switch (entry.moveId) {
+    case "token_spark":
+    case "static_peck":
+      return "spark";
+    case "context_read":
+    case "cache_bump":
+    case "trace_laser":
+      return "scan";
+    case "null_pulse":
+      return "null";
+    case "refactor_aura":
+      return "aura";
+    case "battle_burst":
+    case "patch_burst":
+      return "burst";
+    case "kernel_shell":
+    case "loop_guard":
+      return "guard";
+    case "quick_ping":
+    default:
+      return "quick";
+  }
+}
+
+function renderBattleMoveEffect(entry) {
+  els.battleFxLayer.replaceChildren();
+  const kind = battleMoveEffectKind(entry);
+  const effect = document.createElement("div");
+  const direction = "from-" + entry.actor;
+  effect.className = "move-effect " + direction + " effect-" + kind + (kind === "guard" ? " guard" : " projectile");
+  appendEffectBits(effect, effectBitCount(kind));
+  els.battleFxLayer.append(effect);
+}
+
+function renderBattleImpactEffect(entry) {
+  els.battleFxLayer.replaceChildren();
+  const kind = battleMoveEffectKind(entry);
+  const target = entry.actor === "pet" ? "opponent" : "pet";
+  const effect = document.createElement("div");
+  effect.className = "impact-effect target-" + target + " effect-" + kind;
+  appendEffectBits(effect, 6);
+  els.battleFxLayer.append(effect);
+}
+
+function renderBattleMissEffect(entry) {
+  els.battleFxLayer.replaceChildren();
+  const effect = document.createElement("div");
+  effect.className = "miss-effect from-" + entry.actor;
+  appendEffectBits(effect, 2);
+  els.battleFxLayer.append(effect);
+}
+
+function appendEffectBits(effect, count) {
+  for (let index = 0; index < count; index += 1) {
+    effect.append(document.createElement("span"));
+  }
+}
+
+function effectBitCount(kind) {
+  if (kind === "burst") {
+    return 5;
+  }
+  if (kind === "scan" || kind === "guard" || kind === "null") {
+    return 4;
+  }
+  return 3;
+}
+
 function clearBattleCardEffects() {
   for (const card of [els.battlePetCard, els.battleOpponentCard]) {
     card.classList.remove("acting", "hit", "guarding", "missed");
   }
+  for (const fighter of [els.battlePetFighter, els.battleOpponentFighter]) {
+    fighter.classList.remove("acting", "hit", "guarding", "missed");
+  }
+  els.battleFxLayer.replaceChildren();
 }
 
 function setBattleCue(label) {

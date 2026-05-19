@@ -223,7 +223,7 @@ Dashboard 只绑定 `127.0.0.1`。页面提供宠物等级、XP、技能、训�
 
 `Auto Scan` 默认关闭。开启后会立即写入扫描一次，并按设定间隔继续扫描；它会使用开启时选中的 `7 / 30 / 全部` 扫描窗口。自动扫描和手动扫描共享同一个串行锁，自动写入成功后会让旧的手动 dry-run 确认失效，避免在旧预览基础上重复确认。
 
-Dashboard 的训练战斗会使用本地页面会话 token 写入战绩和本地训练 XP，并返回刷新后的脱敏状态。战斗区会逐回合播放出招、命中、落空、防守、受击和 HP 变化，显示双方 HP 条、结果、回合日志，以及招式图鉴和解锁等级。它不增加 Codex XP，也不会读取或上传 Codex 日志。
+Dashboard 的训练战斗会使用本地页面会话 token 写入战绩和本地训练 XP，并返回刷新后的脱敏状态。战斗区会逐回合播放宠物和对手的站位、出招、不同招式特效、命中、落空、防守、受击和 HP 变化，显示双方 HP 条、结果、回合日志，以及招式图鉴和解锁等级。练习对手会从 Static Mote、Cache Shell、Trace Lancer、Loop Sentinel、Null Mirror、Patch Core 等原创野怪模板中按难度和 seed 选择。它不增加 Codex XP，也不会读取或上传 Codex 日志。
 
 Adventure 面板是只读派生状态，不新增存档字段：它会根据当前伙伴、首次侦察、已领取 XP、战斗次数、胜场和等级显示训练师称号、下一批任务和徽章。Tailscale 只读预览也可以展示这些进度，但不会允许任何写入动作。
 
@@ -513,7 +513,7 @@ scanner 不会返回 prompt、response、tool output、原始 JSONL 行或凭据
 - `battleTypes.ts`：定义战斗难度、属性、招式、日志和结果类型；
 - `battleEngine.ts`：把 `PetState` 转成战斗属性，生成练习对手，并执行回合制 PvE 战斗。
 
-当前战斗使用自有的 `spark` / `focus` / `guard` 属性相克，不使用宝可梦名称、角色、招式或素材。CLI 默认不写 state，传入 `--commit` 才记录战绩和训练 XP；Dashboard 训练战斗会记录战绩和训练 XP。CLI 的 `--move` 和 Dashboard 的招式下拉可以指定宠物开场招式，未解锁招式会被拒绝。训练战斗不奖励 Codex XP。
+当前战斗使用自有的 `spark` / `focus` / `guard` 属性相克，不使用宝可梦名称、角色、招式或素材。CLI 默认不写 state，传入 `--commit` 才记录战绩和训练 XP；Dashboard 训练战斗会记录战绩和训练 XP。CLI 的 `--move` 和 Dashboard 的招式下拉可以指定宠物开场招式，未解锁招式会被拒绝。训练对手来自原创野怪模板池，不同模板有不同外观、属性、招式池和数值倾向。训练战斗不奖励 Codex XP。
 
 ### `dashboard/`
 

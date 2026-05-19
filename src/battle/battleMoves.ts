@@ -80,5 +80,37 @@ export const OPPONENT_BATTLE_MOVES: BattleMove[] = [
     category: "attack",
     power: 22,
     accuracy: 0.94
+  },
+  {
+    id: "trace_laser",
+    displayName: "Trace Laser",
+    affinity: "focus",
+    category: "attack",
+    power: 24,
+    accuracy: 0.95
+  },
+  {
+    id: "kernel_shell",
+    displayName: "Kernel Shell",
+    affinity: "guard",
+    category: "guard",
+    power: 0,
+    accuracy: 1
+  },
+  {
+    id: "null_pulse",
+    displayName: "Null Pulse",
+    affinity: "guard",
+    category: "attack",
+    power: 27,
+    accuracy: 0.93
+  },
+  {
+    id: "patch_burst",
+    displayName: "Patch Burst",
+    affinity: "spark",
+    category: "attack",
+    power: 32,
+    accuracy: 0.9
   }
 ];

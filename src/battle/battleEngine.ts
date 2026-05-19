@@ -23,6 +23,89 @@ const TRAINING_XP_REWARDS: Record<BattleDifficulty, Record<BattleOutcome, number
   hard: { victory: 12, draw: 5, defeat: 3 }
 };
 
+interface WildOpponentTemplate {
+  visualId: string;
+  name: string;
+  affinity: BattleAffinity;
+  difficulties: BattleDifficulty[];
+  moveIds: string[];
+  hp: number;
+  attack: number;
+  defense: number;
+  speed: number;
+  levelOffset?: number;
+}
+
+const WILD_OPPONENTS: WildOpponentTemplate[] = [
+  {
+    visualId: "static_mote",
+    name: "Static Mote",
+    affinity: "spark",
+    difficulties: ["easy", "normal"],
+    moveIds: ["static_peck", "cache_bump"],
+    hp: 0.84,
+    attack: 1.04,
+    defense: 0.86,
+    speed: 1.18
+  },
+  {
+    visualId: "cache_shell",
+    name: "Cache Shell",
+    affinity: "guard",
+    difficulties: ["easy", "normal"],
+    moveIds: ["cache_bump", "loop_guard"],
+    hp: 1.08,
+    attack: 0.88,
+    defense: 1.16,
+    speed: 0.84
+  },
+  {
+    visualId: "trace_lancer",
+    name: "Trace Lancer",
+    affinity: "focus",
+    difficulties: ["easy", "normal", "hard"],
+    moveIds: ["trace_laser", "cache_bump"],
+    hp: 0.96,
+    attack: 1.08,
+    defense: 0.96,
+    speed: 1.08
+  },
+  {
+    visualId: "loop_sentinel",
+    name: "Loop Sentinel",
+    affinity: "guard",
+    difficulties: ["normal", "hard"],
+    moveIds: ["loop_guard", "kernel_shell", "null_pulse"],
+    hp: 1.16,
+    attack: 0.96,
+    defense: 1.18,
+    speed: 0.9
+  },
+  {
+    visualId: "null_mirror",
+    name: "Null Mirror",
+    affinity: "focus",
+    difficulties: ["normal", "hard"],
+    moveIds: ["null_pulse", "trace_laser", "kernel_shell"],
+    hp: 1.02,
+    attack: 1.02,
+    defense: 1.04,
+    speed: 1.02
+  },
+  {
+    visualId: "patch_core",
+    name: "Patch Core",
+    affinity: "spark",
+    difficulties: ["hard"],
+    moveIds: ["patch_burst", "static_peck", "kernel_shell"],
+    hp: 1.06,
+    attack: 1.22,
+    defense: 1,
+    speed: 1.08,
+    levelOffset: 1
+  }
+];
+
 export function runPracticeBattle(
   state: PetState,
   options: PracticeBattleOptions = {}
@@ -31,7 +114,7 @@ export function runPracticeBattle(
   const seed = options.seed ?? randomUUID();
   const random = createSeededRandom(seed);
   const pet = createPetCombatant(state);
-  const opponent = createPracticeOpponent(state, difficulty);
+  const opponent = createPracticeOpponent(state, difficulty, random);
   const log: BattleLogEntry[] = [];
   let preferredPetMove = pet.moves.find((move) => move.id === options.preferredMoveId);
   const preferredMoveId = preferredPetMove?.id;
@@ -136,23 +219,46 @@ export function createPetCombatant(state: PetState): BattleCombatant {
   };
 }
 
-function createPracticeOpponent(state: PetState, difficulty: BattleDifficulty): BattleCombatant {
-  const baseLevel = Math.max(1, state.pet.level + difficultyLevelOffset(difficulty));
+function createPracticeOpponent(
+  state: PetState,
+  difficulty: BattleDifficulty,
+  random: () => number
+): BattleCombatant {
+  const template = chooseWildOpponent(difficulty, random);
+  const baseLevel = Math.max(
+    1,
+    state.pet.level + difficultyLevelOffset(difficulty) + (template.levelOffset ?? 0)
+  );
   const multiplier = difficultyMultiplier(difficulty);
-  const maxHp = Math.round((72 + baseLevel * 11) * multiplier.hp);
+  const maxHp = Math.round((72 + baseLevel * 11) * multiplier.hp * template.hp);
 
   return {
     id: "opponent",
-    name: opponentName(difficulty),
+    name: template.name,
+    visualId: template.visualId,
     level: baseLevel,
-    affinity: opponentAffinity(difficulty),
+    affinity: template.affinity,
     maxHp,
     hp: maxHp,
-    attack: Math.round((14 + baseLevel * 3) * multiplier.attack),
-    defense: Math.round((10 + baseLevel * 2) * multiplier.defense),
-    speed: Math.round((11 + baseLevel * 2) * multiplier.speed),
-    moves: OPPONENT_BATTLE_MOVES
+    attack: Math.round((14 + baseLevel * 3) * multiplier.attack * template.attack),
+    defense: Math.round((10 + baseLevel * 2) * multiplier.defense * template.defense),
+    speed: Math.round((11 + baseLevel * 2) * multiplier.speed * template.speed),
+    moves: movesById(template.moveIds)
   };
+}
+
+function chooseWildOpponent(
+  difficulty: BattleDifficulty,
+  random: () => number
+): WildOpponentTemplate {
+  const candidates = WILD_OPPONENTS.filter((opponent) => opponent.difficulties.includes(difficulty));
+  return candidates[Math.floor(random() * candidates.length)] ?? WILD_OPPONENTS[0];
+}
+
+function movesById(moveIds: string[]): BattleMove[] {
+  const moveSet = new Set(moveIds);
+  const moves = OPPONENT_BATTLE_MOVES.filter((move) => moveSet.has(move.id));
+  return moves.length > 0 ? moves : OPPONENT_BATTLE_MOVES;
 }
 
 function chooseMove(
@@ -300,18 +406,6 @@ function petAffinity(skills: Set<string>): BattleAffinity {
   return "focus";
 }
 
-function opponentAffinity(difficulty: BattleDifficulty): BattleAffinity {
-  if (difficulty === "hard") {
-    return "guard";
-  }
-
-  if (difficulty === "easy") {
-    return "focus";
-  }
-
-  return "spark";
-}
-
 function difficultyLevelOffset(difficulty: BattleDifficulty): number {
   if (difficulty === "easy") {
     return -1;
@@ -339,18 +433,6 @@ function difficultyMultiplier(difficulty: BattleDifficulty): {
   }
 
   return { hp: 1, attack: 1, defense: 1, speed: 1 };
-}
-
-function opponentName(difficulty: BattleDifficulty): string {
-  if (difficulty === "easy") {
-    return "Practice Sprout";
-  }
-
-  if (difficulty === "hard") {
-    return "Practice Sentinel";
-  }
-
-  return "Practice Rival";
 }
 
 function trainingXpReward(difficulty: BattleDifficulty, outcome: BattleOutcome): number {

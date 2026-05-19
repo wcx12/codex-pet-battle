@@ -37,14 +37,14 @@ Dashboard 和 CLI 都支持本地 PvE 训练战斗。难度有 `easy`、`normal`
 - Pathy 的 HP、攻击、防御、速度；
 - 可用招式池；
 - 玩家选择的开场招式；
-- 对手属性和招式；
+- 从原创野怪模板池中按难度和 seed 选择的对手、属性和招式；
 - 双方 HP 条和战斗状态；
-- 逐回合播放的出招、命中、落空、防守、受击和 HP 变化；
+- 逐回合播放的宠物站位、出招、不同招式特效、命中、落空、防守、受击和 HP 变化；
 - 招式图鉴与未解锁招式等级；
 - 回合制战斗日志；
 - 胜、负、平、当前连胜、最佳连胜等本地战绩。
 
-当前战斗属性是项目自有的 `spark`、`focus`、`guard`，不是任何现有商业 IP 的属性、角色或招式。Pathy 初始可用 `Quick Ping`，随后会随着技能解锁获得 `Token Spark`、`Context Read`、`Test Shield`、`Refactor Aura` 和 `Battle Burst`。
+当前战斗属性是项目自有的 `spark`、`focus`、`guard`，不是任何现有商业 IP 的属性、角色或招式。Pathy 初始可用 `Quick Ping`，随后会随着技能解锁获得 `Token Spark`、`Context Read`、`Test Shield`、`Refactor Aura` 和 `Battle Burst`。练习对手目前包括 Static Mote、Cache Shell、Trace Lancer、Loop Sentinel、Null Mirror、Patch Core 等原创野怪模板；它们会按难度和 seed 出现，并带有不同外观、属性、招式池和数值倾向。
 
 训练战斗现在会记录战绩，并给少量本地训练 XP。训练 XP 可以推动宠物升级和技能解锁，但不会计入 Codex XP；Codex XP 仍然只来自扫描任务。它还没有掉落、捕获、装备或排行榜，更像是“训练场”：用来检验 Pathy 成长后的战斗手感。
 

@@ -58,6 +58,39 @@ describe("battleEngine", () => {
     expect(nextState.pet.xp).toBe(state.pet.xp + battle.rewards.petXpAwarded);
   });
 
+  it("selects varied wild practice opponents deterministically", () => {
+    const state = createDefaultPetState(new Date("2026-05-07T00:00:00.000Z"));
+    const battles = [
+      runPracticeBattle(state, { difficulty: "easy", seed: "easy-0" }),
+      runPracticeBattle(state, { difficulty: "easy", seed: "easy-1" }),
+      runPracticeBattle(state, { difficulty: "easy", seed: "easy-8" }),
+      runPracticeBattle(state, { difficulty: "normal", seed: "normal-1" }),
+      runPracticeBattle(state, { difficulty: "normal", seed: "normal-4" }),
+      runPracticeBattle(state, { difficulty: "hard", seed: "hard-4" })
+    ];
+    const opponents = new Map(battles.map((battle) => [
+      battle.opponent.name,
+      battle.opponent.visualId
+    ]));
+
+    expect(Object.fromEntries(opponents)).toEqual({
+      "Static Mote": "static_mote",
+      "Trace Lancer": "trace_lancer",
+      "Cache Shell": "cache_shell",
+      "Null Mirror": "null_mirror",
+      "Loop Sentinel": "loop_sentinel",
+      "Patch Core": "patch_core"
+    });
+    for (const battle of battles) {
+      expect(battle.opponent.visualId).toEqual(expect.any(String));
+      expect(battle.opponent.moves.length).toBeGreaterThanOrEqual(2);
+      expect(runPracticeBattle(state, {
+        difficulty: battle.difficulty,
+        seed: battle.seed
+      }).opponent).toEqual(battle.opponent);
+    }
+  });
+
   it("can level up and unlock skills from training XP", () => {
     const state = {
       ...createDefaultPetState(new Date("2026-05-07T00:00:00.000Z")),
