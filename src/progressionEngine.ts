@@ -2,6 +2,7 @@ import { ECONOMY_VERSION } from "./constants.js";
 import { hardDailySoftCap, hardWeeklyCap } from "./economy/caps.js";
 import { outputFocusedFormula } from "./economy/formulas.js";
 import { applyLevelCurve, milestoneCurve } from "./economy/levelCurves.js";
+import { PET_SKILL_CATALOG } from "./skillCatalog.js";
 import type {
   LifetimeUsage,
   PetState,
@@ -9,14 +10,6 @@ import type {
   TokenObservation,
   TokenUsage
 } from "./types.js";
-
-const SKILL_UNLOCKS = [
-  { level: 2, skill: "token_spark" },
-  { level: 3, skill: "context_sense" },
-  { level: 5, skill: "test_shield" },
-  { level: 8, skill: "refactor_aura" },
-  { level: 10, skill: "battle_ready" }
-] as const;
 
 const HARD_DAILY_TIERS = [
   { size: 6, rate: 1 },
@@ -82,9 +75,9 @@ export function applyProgression(
 
   const levelResult = applyLevelCurve(gainedXp, milestoneCurve, state.pet.level, state.pet.xp);
   const previousSkills = new Set(state.pet.skills);
-  const newlyUnlockedSkills = SKILL_UNLOCKS.filter(
-    ({ level: unlockLevel, skill }) => levelResult.level >= unlockLevel && !previousSkills.has(skill)
-  ).map(({ skill }) => skill);
+  const newlyUnlockedSkills = PET_SKILL_CATALOG.filter(
+    ({ unlockLevel, id }) => levelResult.level >= unlockLevel && !previousSkills.has(id)
+  ).map(({ id }) => id);
 
   const didChange =
     processedObservationIds.length > 0 ||

@@ -54,11 +54,24 @@ export interface LifetimeUsage {
   lifetimeTotalTokens: number;
 }
 
+export interface PetBattleState {
+  totalBattles: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  currentStreak: number;
+  bestStreak: number;
+  lastOutcome?: "victory" | "defeat" | "draw";
+  lastBattledAt?: string;
+}
+
 export interface PetState {
   schemaVersion: 2;
+  activePetId: string;
   pet: PetProfile;
   usage: LifetimeUsage;
   economy: EconomyState;
+  battle: PetBattleState;
   processedObservations: string[];
   createdAt: string;
   updatedAt: string;

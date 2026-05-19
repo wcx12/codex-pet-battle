@@ -1,0 +1,6 @@
+{
+  "id": "pathy",
+  "displayName": "Pathy",
+  "description": "A tiny teal pathfinder companion for Codex Pet Battle.",
+  "spritesheetPath": "spritesheet.webp"
+}

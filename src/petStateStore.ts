@@ -5,21 +5,29 @@ import path from "node:path";
 import {
   CURRENT_SCHEMA_VERSION,
   ECONOMY_VERSION,
+  DEFAULT_ACTIVE_PET_ID,
   DEFAULT_PET_NAME
 } from "./constants.js";
 import { UserFacingError } from "./errors.js";
 import type {
   LifetimeUsage,
+  PetBattleState,
   PetState,
   TokenObservation
 } from "./types.js";
 import { xpToNextLevel } from "./progressionEngine.js";
+
+export interface PetStateBackupResult {
+  backupFilePath: string;
+  backedUpAt: string;
+}
 
 export function createDefaultPetState(now = new Date()): PetState {
   const timestamp = now.toISOString();
 
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
+    activePetId: DEFAULT_ACTIVE_PET_ID,
     pet: {
       name: DEFAULT_PET_NAME,
       level: 1,
@@ -29,6 +37,7 @@ export function createDefaultPetState(now = new Date()): PetState {
     },
     usage: createEmptyLifetimeUsage(),
     economy: createDefaultEconomyState(),
+    battle: createDefaultBattleState(),
     processedObservations: [],
     createdAt: timestamp,
     updatedAt: timestamp
@@ -107,6 +116,45 @@ export async function writePetStateAtomically(
   }
 }
 
+export async function backupPetState(
+  stateFilePath: string,
+  now = new Date()
+): Promise<PetStateBackupResult> {
+  let rawState: string;
+
+  try {
+    rawState = await fs.readFile(stateFilePath, "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      throw new UserFacingError("No local pet state file found to back up. Run scan first.");
+    }
+
+    throw new UserFacingError(
+      `Could not read pet state file at ${stateFilePath}: ${formatError(error)}`
+    );
+  }
+
+  const backedUpAt = now.toISOString();
+  const backupFileName = createBackupFileName(path.basename(stateFilePath), backedUpAt);
+  const backupFilePath = path.join(
+    path.dirname(stateFilePath),
+    backupFileName
+  );
+
+  try {
+    await fs.writeFile(backupFilePath, rawState, "utf8");
+  } catch (error) {
+    throw new UserFacingError(
+      `Could not write pet state backup at ${backupFilePath}: ${formatError(error)}`
+    );
+  }
+
+  return {
+    backupFilePath,
+    backedUpAt
+  };
+}
+
 export function filterNewObservations(
   state: PetState,
   observations: TokenObservation[]
@@ -157,6 +205,7 @@ function parsePetState(value: unknown, stateFilePath: string): PetState {
   const pet = value.pet;
   const usage = value.usage;
   const economy = value.economy;
+  const battle = value.battle;
 
   if (
     typeof pet.name !== "string" ||
@@ -166,13 +215,16 @@ function parsePetState(value: unknown, stateFilePath: string): PetState {
     !isNonNegativeInteger(pet.xpToNextLevel) ||
     !isStringArray(pet.skills) ||
     !isLifetimeUsage(usage) ||
-    !isEconomyState(economy)
+    !isEconomyState(economy) ||
+    (value.activePetId !== undefined && !isPetId(value.activePetId)) ||
+    (battle !== undefined && !isBattleState(battle))
   ) {
     throw invalidStateError(stateFilePath);
   }
 
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
+    activePetId: isPetId(value.activePetId) ? value.activePetId : DEFAULT_ACTIVE_PET_ID,
     pet: {
       name: pet.name,
       level: pet.level,
@@ -182,6 +234,7 @@ function parsePetState(value: unknown, stateFilePath: string): PetState {
     },
     usage,
     economy,
+    battle: battle === undefined ? createDefaultBattleState() : battle,
     processedObservations: value.processedObservations,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt
@@ -222,6 +275,7 @@ function migrateV1State(value: Record<string, unknown>, stateFilePath: string): 
 
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
+    activePetId: DEFAULT_ACTIVE_PET_ID,
     pet: {
       name: pet.name,
       level: pet.level,
@@ -234,6 +288,7 @@ function migrateV1State(value: Record<string, unknown>, stateFilePath: string): 
       ...createDefaultEconomyState(),
       initialImportCompleted: hasHistoricalActivity
     },
+    battle: createDefaultBattleState(),
     processedObservations: value.processedObservations,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt
@@ -257,6 +312,17 @@ function createDefaultEconomyState(): PetState["economy"] {
     dailyXpLedger: {},
     weeklyXpLedger: {},
     xpRemainder: 0
+  };
+}
+
+function createDefaultBattleState(): PetBattleState {
+  return {
+    totalBattles: 0,
+    wins: 0,
+    losses: 0,
+    draws: 0,
+    currentStreak: 0,
+    bestStreak: 0
   };
 }
 
@@ -291,6 +357,26 @@ function isLifetimeUsage(value: unknown): value is LifetimeUsage {
   );
 }
 
+function isBattleState(value: unknown): value is PetBattleState {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isNonNegativeInteger(value.totalBattles) &&
+    isNonNegativeInteger(value.wins) &&
+    isNonNegativeInteger(value.losses) &&
+    isNonNegativeInteger(value.draws) &&
+    isNonNegativeInteger(value.currentStreak) &&
+    isNonNegativeInteger(value.bestStreak) &&
+    (value.lastOutcome === undefined ||
+      value.lastOutcome === "victory" ||
+      value.lastOutcome === "defeat" ||
+      value.lastOutcome === "draw") &&
+    (value.lastBattledAt === undefined || typeof value.lastBattledAt === "string")
+  );
+}
+
 function invalidStateError(stateFilePath: string): UserFacingError {
   return new UserFacingError(
     `Pet state file at ${stateFilePath} is not a valid schema v1/v2 state. Back it up or remove it before scanning again.`
@@ -303,6 +389,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isPetId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(value);
 }
 
 function isNumberRecord(value: unknown): value is Record<string, number> {
@@ -322,6 +412,20 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function formatBackupTimestamp(timestamp: string): string {
+  return timestamp.replace(/[:.]/g, "-");
+}
+
+function createBackupFileName(fileName: string, timestamp: string): string {
+  const stamp = formatBackupTimestamp(timestamp);
+  if (fileName.endsWith(".local.json")) {
+    return fileName.replace(/\.local\.json$/u, `.backup-${stamp}.local.json`);
+  }
+
+  const parsedPath = path.parse(fileName);
+  return `${parsedPath.name}.backup-${stamp}${parsedPath.ext || ".json"}`;
 }
 
 async function removeTempFileIfPresent(tempFilePath: string): Promise<void> {

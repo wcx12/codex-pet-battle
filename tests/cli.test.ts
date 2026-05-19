@@ -1,4 +1,4 @@
-import { access, appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, appendFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -17,6 +17,9 @@ describe("cli", () => {
 
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("codex-pet-battle dashboard");
+    expect(result.stdout).toContain("codex-pet-battle backup");
+    expect(result.stdout).toContain("codex-pet-battle doctor");
+    expect(result.stdout).toContain("codex-pet-battle battle");
     expect(result.stdout).toContain("--auto-scan");
     expect(result.stdout).toContain("Start the local dashboard");
   });
@@ -195,6 +198,120 @@ describe("cli", () => {
     expect((await stat(stateFile)).mtimeMs).toBe(beforeStat.mtimeMs);
   });
 
+  it("backs up local state without scanning Codex logs", async () => {
+    const root = await makeTempDir();
+    const stateFile = path.join(root, "pet_state.local.json");
+    await writeFile(stateFile, JSON.stringify({ hello: "state" }), "utf8");
+
+    const result = await runCliForTest(["backup", "--state-file", stateFile]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Backup complete");
+    expect(result.stdout).toContain("State file: pet_state.local.json");
+    expect(result.stdout).toContain("Backup file: pet_state.backup-");
+    expect(result.stdout).not.toContain(root);
+
+    const files = await readdir(root);
+    const backupFile = files.find((file) => file.startsWith("pet_state.backup-"));
+    expect(backupFile).toBeDefined();
+    await expect(readFile(path.join(root, backupFile ?? ""), "utf8")).resolves.toBe('{"hello":"state"}');
+  });
+
+  it("prints a sanitized doctor report", async () => {
+    const root = await makeTempDir();
+    const codexHome = await createCodexHome(root, [
+      tokenCountLine("2026-05-07T00:00:00.000Z", {
+        input_tokens: 1000,
+        cached_input_tokens: 0,
+        output_tokens: 0,
+        reasoning_output_tokens: 0,
+        total_tokens: 1000
+      })
+    ]);
+    const stateFile = path.join(root, "pet_state.local.json");
+    await runCliForTest(["scan", "--codex-home", codexHome, "--state-file", stateFile]);
+
+    const result = await runCliForTest(["doctor", "--codex-home", codexHome, "--state-file", stateFile]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Doctor report");
+    expect(result.stdout).toContain("Overall: ok");
+    expect(result.stdout).toContain("State: schema v2, level 1");
+    expect(result.stdout).toContain("Codex home: accessible, sessions: found");
+    expect(result.stdout).toContain("Pet packages:");
+    expect(result.stdout).not.toContain(root);
+    expect(result.stdout).not.toContain(codexHome);
+  });
+
+  it("runs a local practice battle without modifying state", async () => {
+    const root = await makeTempDir();
+    const stateFile = path.join(root, "pet_state.local.json");
+    await writeFile(stateFile, JSON.stringify(createStateForBattle()), "utf8");
+    const before = await readFile(stateFile, "utf8");
+
+    const result = await runCliForTest([
+      "battle",
+      "--state-file",
+      stateFile,
+      "--difficulty",
+      "easy",
+      "--move",
+      "token_spark",
+      "--seed",
+      "cli-battle"
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Practice battle complete");
+    expect(result.stdout).toContain("State updated: no");
+    expect(result.stdout).toContain("Difficulty: easy");
+    expect(result.stdout).toContain("Opening move: token_spark");
+    expect(result.stdout).toContain("Training XP awarded:");
+    expect(result.stdout).toContain("Codex XP awarded: 0");
+    expect(result.stdout).toContain("Battle log:");
+    expect(await readFile(stateFile, "utf8")).toBe(before);
+  });
+
+  it("records a local practice battle with --commit", async () => {
+    const root = await makeTempDir();
+    const stateFile = path.join(root, "pet_state.local.json");
+    await writeFile(stateFile, JSON.stringify(createStateForBattle()), "utf8");
+
+    const result = await runCliForTest([
+      "battle",
+      "--state-file",
+      stateFile,
+      "--difficulty",
+      "easy",
+      "--seed",
+      "cli-battle",
+      "--commit"
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("State updated: yes");
+    expect(result.stdout).toContain("Record:");
+    const persisted = JSON.parse(await readFile(stateFile, "utf8"));
+    expect(persisted.battle.totalBattles).toBe(1);
+    expect(persisted.battle.wins + persisted.battle.losses + persisted.battle.draws).toBe(1);
+    expect(["victory", "defeat", "draw"]).toContain(persisted.battle.lastOutcome);
+    expect(persisted.pet.xp).toBeGreaterThan(0);
+  });
+
+  it("rejects invalid battle difficulty", async () => {
+    const result = await runCliForTest(["battle", "--difficulty", "legendary"]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("--difficulty must be easy, normal, or hard");
+  });
+
+  it("rejects unavailable battle moves", async () => {
+    const result = await runCliForTest(["battle", "--move", "battle_burst"]);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("--move must be one of the pet's unlocked moves");
+  });
+
   it("returns a user-facing error for a missing Codex home", async () => {
     const root = await makeTempDir();
     const missingHome = path.join(root, "missing codex home");
@@ -251,6 +368,10 @@ describe("cli", () => {
     const statusResult = await runCliForTest(["status", "--auto-scan"]);
     expect(statusResult.code).toBe(1);
     expect(statusResult.stderr).toContain("status command does not start auto scan");
+
+    const backupResult = await runCliForTest(["backup", "--auto-scan"]);
+    expect(backupResult.code).toBe(1);
+    expect(backupResult.stderr).toContain("backup command does not start auto scan");
   });
 
   it("requires --auto-scan before dashboard auto-scan settings", async () => {
@@ -339,4 +460,34 @@ function tokenCountLine(
       }
     }
   });
+}
+
+function createStateForBattle() {
+  return {
+    schemaVersion: 2,
+    pet: {
+      name: "Pathy",
+      level: 5,
+      xp: 0,
+      xpToNextLevel: 520,
+      skills: ["token_spark", "context_sense", "test_shield"]
+    },
+    usage: {
+      lifetimeInputTokens: 0,
+      lifetimeCachedInputTokens: 0,
+      lifetimeOutputTokens: 0,
+      lifetimeReasoningOutputTokens: 0,
+      lifetimeTotalTokens: 0
+    },
+    economy: {
+      version: "hard-v1",
+      initialImportCompleted: true,
+      dailyXpLedger: {},
+      weeklyXpLedger: {},
+      xpRemainder: 0
+    },
+    processedObservations: [],
+    createdAt: "2026-05-07T00:00:00.000Z",
+    updatedAt: "2026-05-07T00:00:00.000Z"
+  };
 }

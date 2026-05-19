@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { UserFacingError } from "../src/errors.js";
 import {
+  backupPetState,
   createDefaultPetState,
   filterNewObservations,
   loadOrCreatePetState,
@@ -34,6 +35,7 @@ describe("petStateStore", () => {
 
     expect(state).toEqual({
       schemaVersion: 2,
+      activePetId: "pathy",
       pet: {
         name: "Pathy",
         level: 1,
@@ -54,6 +56,14 @@ describe("petStateStore", () => {
         dailyXpLedger: {},
         weeklyXpLedger: {},
         xpRemainder: 0
+      },
+      battle: {
+        totalBattles: 0,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        currentStreak: 0,
+        bestStreak: 0
       },
       processedObservations: [],
       createdAt: "2026-05-07T00:00:00.000Z",
@@ -101,6 +111,24 @@ describe("petStateStore", () => {
     expect(JSON.parse(await fs.readFile(filePath, "utf8"))).toEqual(state);
     const files = await fs.readdir(tempDirectory);
     expect(files).toEqual(["pet_state.local.json"]);
+  });
+
+  it("backs up the raw state file beside the source", async () => {
+    const filePath = statePath();
+    const state = createDefaultPetState(new Date("2026-05-07T00:00:00.000Z"));
+    const raw = `${JSON.stringify(state, null, 2)}\n`;
+    await fs.writeFile(filePath, raw, "utf8");
+
+    const backup = await backupPetState(filePath, new Date("2026-05-07T12:34:56.789Z"));
+
+    expect(path.basename(backup.backupFilePath)).toBe(
+      "pet_state.backup-2026-05-07T12-34-56-789Z.local.json"
+    );
+    await expect(fs.readFile(backup.backupFilePath, "utf8")).resolves.toBe(raw);
+  });
+
+  it("reports a user-facing error when backing up a missing state file", async () => {
+    await expect(backupPetState(statePath())).rejects.toThrow("No local pet state file found");
   });
 
   it("filters observations already processed and duplicates in the same batch", () => {
@@ -174,14 +202,57 @@ describe("petStateStore", () => {
     await expect(readPetState(filePath)).resolves.toEqual({
       ...v1State,
       schemaVersion: 2,
+      activePetId: "pathy",
       economy: {
         version: "hard-v1",
         initialImportCompleted: true,
         dailyXpLedger: {},
         weeklyXpLedger: {},
         xpRemainder: 0
+      },
+      battle: {
+        totalBattles: 0,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        currentStreak: 0,
+        bestStreak: 0
       }
     });
+  });
+
+  it("loads legacy schema v2 state without battle stats by filling defaults", async () => {
+    const filePath = statePath();
+    const legacyState = createDefaultPetState(new Date("2026-05-07T00:00:00.000Z"));
+    const { battle: _battle, ...withoutBattle } = legacyState;
+    await fs.writeFile(filePath, JSON.stringify(withoutBattle), "utf8");
+
+    await expect(readPetState(filePath)).resolves.toEqual(legacyState);
+  });
+
+  it("loads legacy schema v2 state without active pet by filling the default", async () => {
+    const filePath = statePath();
+    const legacyState = createDefaultPetState(new Date("2026-05-07T00:00:00.000Z"));
+    const { activePetId: _activePetId, ...withoutActivePet } = legacyState;
+    await fs.writeFile(filePath, JSON.stringify(withoutActivePet), "utf8");
+
+    await expect(readPetState(filePath)).resolves.toEqual(legacyState);
+  });
+
+  it("rejects schema v2 states with unsafe active pet ids", async () => {
+    const filePath = statePath();
+    await fs.writeFile(
+      filePath,
+      JSON.stringify({
+        ...createDefaultPetState(),
+        activePetId: "../secret"
+      }),
+      "utf8"
+    );
+
+    await expect(readPetState(filePath)).rejects.toBeInstanceOf(
+      UserFacingError
+    );
   });
 
   it("rejects schema v2 states with invalid XP remainder", async () => {

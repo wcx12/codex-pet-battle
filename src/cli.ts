@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { recordPracticeBattleResult, runPracticeBattle } from "./battle/battleEngine.js";
+import type { BattleDifficulty } from "./battle/battleTypes.js";
 import { DEFAULT_STATE_FILE_NAME } from "./constants.js";
 import { startDashboardServer } from "./dashboard/dashboardServer.js";
+import { createDoctorReport } from "./diagnostics.js";
 import { UserFacingError } from "./errors.js";
-import { createDefaultPetState, readPetState } from "./petStateStore.js";
+import { backupPetState, createDefaultPetState, readPetState, writePetStateAtomically } from "./petStateStore.js";
 import { runPetScan } from "./scanWorkflow.js";
 import { sanitizeErrorMessage } from "./privacy.js";
 import type { PetState, ScannerWarnings } from "./types.js";
@@ -15,7 +18,7 @@ interface CliIo {
 }
 
 interface ParsedArgs {
-  command: "scan" | "status" | "dashboard" | "help";
+  command: "scan" | "status" | "dashboard" | "backup" | "doctor" | "battle" | "help";
   codexHome?: string;
   dryRun: boolean;
   recentDays?: number;
@@ -24,6 +27,10 @@ interface ParsedArgs {
   autoScan: boolean;
   autoScanIntervalMinutes?: number;
   autoScanRecentDays?: number | null;
+  battleDifficulty?: BattleDifficulty;
+  battleSeed?: string;
+  battleMoveId?: string;
+  commitBattle: boolean;
 }
 
 const USAGE = `Codex Pet Battle
@@ -31,11 +38,17 @@ const USAGE = `Codex Pet Battle
 Usage:
   codex-pet-battle scan [--codex-home <path>] [--state-file <path>] [--dry-run] [--recent-days <days>]
   codex-pet-battle status [--state-file <path>]
+  codex-pet-battle backup [--state-file <path>]
+  codex-pet-battle doctor [--codex-home <path>] [--state-file <path>]
+  codex-pet-battle battle [--state-file <path>] [--difficulty <easy|normal|hard>] [--move <move-id>] [--seed <seed>] [--commit]
   codex-pet-battle dashboard [--codex-home <path>] [--state-file <path>] [--port <port>] [--auto-scan] [--auto-scan-interval <minutes>] [--auto-scan-recent-days <days|all>]
 
 Commands:
   scan       Read local Codex token usage and update pet state.
   status     Show the current pet state without modifying it.
+  backup     Copy the local pet state file next to itself.
+  doctor     Check local state, Codex home, sessions, and pet packages.
+  battle     Run a local practice battle. Add --commit to record battle stats.
   dashboard  Start the local dashboard at 127.0.0.1.
 `;
 
@@ -58,6 +71,21 @@ export async function runCli(argv = process.argv.slice(2), io: CliIo = defaultIo
       return 0;
     }
 
+    if (parsed.command === "backup") {
+      await runBackup(parsed, io);
+      return 0;
+    }
+
+    if (parsed.command === "doctor") {
+      await runDoctor(parsed, io);
+      return 0;
+    }
+
+    if (parsed.command === "battle") {
+      await runBattle(parsed, io);
+      return 0;
+    }
+
     await runDashboard(parsed, io);
     return 0;
   } catch (error) {
@@ -75,10 +103,17 @@ export async function runCli(argv = process.argv.slice(2), io: CliIo = defaultIo
 function parseArgs(argv: string[]): ParsedArgs {
   const rawCommand = argv[0];
   if (!rawCommand || rawCommand === "help" || rawCommand === "--help" || rawCommand === "-h") {
-    return { command: "help", dryRun: false, stateFile: defaultStateFile(), autoScan: false };
+    return { command: "help", dryRun: false, stateFile: defaultStateFile(), autoScan: false, commitBattle: false };
   }
 
-  if (rawCommand !== "scan" && rawCommand !== "status" && rawCommand !== "dashboard") {
+  if (
+    rawCommand !== "scan" &&
+    rawCommand !== "status" &&
+    rawCommand !== "dashboard" &&
+    rawCommand !== "backup" &&
+    rawCommand !== "doctor" &&
+    rawCommand !== "battle"
+  ) {
     throw new UserFacingError(`Unknown command: ${rawCommand}\n\n${USAGE.trimEnd()}`);
   }
 
@@ -87,7 +122,8 @@ function parseArgs(argv: string[]): ParsedArgs {
     command,
     dryRun: false,
     stateFile: defaultStateFile(),
-    autoScan: false
+    autoScan: false,
+    commitBattle: false
   };
 
   for (let index = 1; index < argv.length; index += 1) {
@@ -132,6 +168,26 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === "--difficulty") {
+      parsed.battleDifficulty = parseBattleDifficulty(requireValue(argv, (index += 1), arg));
+      continue;
+    }
+
+    if (arg === "--seed") {
+      parsed.battleSeed = requireValue(argv, (index += 1), arg);
+      continue;
+    }
+
+    if (arg === "--move") {
+      parsed.battleMoveId = parseBattleMoveId(requireValue(argv, (index += 1), arg));
+      continue;
+    }
+
+    if (arg === "--commit") {
+      parsed.commitBattle = true;
+      continue;
+    }
+
     throw new UserFacingError(`Unknown option: ${arg}`);
   }
 
@@ -152,10 +208,58 @@ function parseArgs(argv: string[]): ParsedArgs {
   }
 
   if (
-    command === "status" &&
+    (command === "status" || command === "backup" || command === "doctor" || command === "battle") &&
     (parsed.autoScan || parsed.autoScanIntervalMinutes !== undefined || parsed.autoScanRecentDays !== undefined)
   ) {
-    throw new UserFacingError("The status command does not start auto scan. Remove --auto-scan options.");
+    throw new UserFacingError(`The ${command} command does not start auto scan. Remove --auto-scan options.`);
+  }
+
+  if (command === "backup" && parsed.codexHome) {
+    throw new UserFacingError("The backup command does not read Codex logs. Remove --codex-home.");
+  }
+
+  if (command === "backup" && parsed.dryRun) {
+    throw new UserFacingError("The backup command already copies without scanning. Remove --dry-run.");
+  }
+
+  if (command === "backup" && parsed.recentDays !== undefined) {
+    throw new UserFacingError("The backup command does not scan logs. Remove --recent-days.");
+  }
+
+  if (command === "backup" && parsed.port !== undefined) {
+    throw new UserFacingError("The backup command does not start a server. Remove --port.");
+  }
+
+  if (command === "doctor" && parsed.dryRun) {
+    throw new UserFacingError("The doctor command is read-only. Remove --dry-run.");
+  }
+
+  if (command === "doctor" && parsed.recentDays !== undefined) {
+    throw new UserFacingError("The doctor command does not scan logs. Remove --recent-days.");
+  }
+
+  if (command === "doctor" && parsed.port !== undefined) {
+    throw new UserFacingError("The doctor command does not start a server. Remove --port.");
+  }
+
+  if (command === "battle" && parsed.codexHome) {
+    throw new UserFacingError("The battle command does not read Codex logs. Remove --codex-home.");
+  }
+
+  if (command === "battle" && parsed.dryRun) {
+    throw new UserFacingError("The battle command is read-only by default. Use --commit to record battle stats, or remove --dry-run.");
+  }
+
+  if (command === "battle" && parsed.recentDays !== undefined) {
+    throw new UserFacingError("The battle command does not scan logs. Remove --recent-days.");
+  }
+
+  if (command === "battle" && parsed.port !== undefined) {
+    throw new UserFacingError("The battle command does not start a server. Remove --port.");
+  }
+
+  if (command !== "battle" && (parsed.battleDifficulty !== undefined || parsed.battleSeed !== undefined || parsed.battleMoveId !== undefined || parsed.commitBattle)) {
+    throw new UserFacingError("--difficulty, --seed, --move, and --commit are only supported by the battle command.");
   }
 
   if (command === "scan" && parsed.port !== undefined) {
@@ -235,6 +339,22 @@ function parseAutoScanRecentDays(value: string): number | null {
   return parseRecentDays(value);
 }
 
+function parseBattleDifficulty(value: string): BattleDifficulty {
+  if (value === "easy" || value === "normal" || value === "hard") {
+    return value;
+  }
+
+  throw new UserFacingError("--difficulty must be easy, normal, or hard.");
+}
+
+function parseBattleMoveId(value: string): string {
+  if (/^[a-z0-9](?:[a-z0-9_:-]{0,62}[a-z0-9])?$/u.test(value)) {
+    return value;
+  }
+
+  throw new UserFacingError("--move must be a safe move id.");
+}
+
 async function runScan(parsed: ParsedArgs, io: CliIo): Promise<void> {
   const result = await runPetScan({
     cliCodexHome: parsed.codexHome,
@@ -285,6 +405,80 @@ async function runStatus(parsed: ParsedArgs, io: CliIo): Promise<void> {
   writePetSummary(io.stdout, state);
 }
 
+async function runBackup(parsed: ParsedArgs, io: CliIo): Promise<void> {
+  const backup = await backupPetState(parsed.stateFile);
+  writeLine(io.stdout, "Backup complete");
+  writeLine(io.stdout, `State file: ${path.basename(parsed.stateFile)}`);
+  writeLine(io.stdout, `Backup file: ${path.basename(backup.backupFilePath)}`);
+  writeLine(io.stdout, `Backed up: ${backup.backedUpAt}`);
+}
+
+async function runDoctor(parsed: ParsedArgs, io: CliIo): Promise<void> {
+  const report = await createDoctorReport({
+    cliCodexHome: parsed.codexHome,
+    stateFile: parsed.stateFile
+  });
+
+  writeLine(io.stdout, "Doctor report");
+  writeLine(io.stdout, `Overall: ${report.ok ? "ok" : "needs attention"}`);
+  writeLine(io.stdout, `State file: ${report.stateFileLabel}`);
+  writeLine(io.stdout, `State: ${report.state.readable ? `schema v${report.state.schemaVersion}, level ${report.state.petLevel}` : report.state.error}`);
+  writeLine(
+    io.stdout,
+    `Codex home: ${report.codexHome.accessible ? "accessible" : "not accessible"}, sessions: ${
+      report.codexHome.sessionsDirExists ? "found" : "missing"
+    }`
+  );
+  writeLine(
+    io.stdout,
+    `Pet packages: ${report.pets.availableCount}, default: ${report.pets.defaultPetAvailable ? "available" : "missing"}`
+  );
+
+  if (report.warnings.length > 0) {
+    writeLine(io.stdout, `Warnings: ${report.warnings.join(" | ")}`);
+  }
+}
+
+async function runBattle(parsed: ParsedArgs, io: CliIo): Promise<void> {
+  const state = (await readPetState(parsed.stateFile)) ?? createDefaultPetState(new Date());
+  const battle = runPracticeBattle(state, {
+    difficulty: parsed.battleDifficulty,
+    seed: parsed.battleSeed,
+    preferredMoveId: parsed.battleMoveId
+  });
+  if (parsed.battleMoveId && battle.preferredMoveId !== parsed.battleMoveId) {
+    throw new UserFacingError("--move must be one of the pet's unlocked moves.");
+  }
+  const nextState = recordPracticeBattleResult(state, battle);
+  if (parsed.commitBattle) {
+    await writePetStateAtomically(parsed.stateFile, nextState);
+  }
+
+  writeLine(io.stdout, "Practice battle complete");
+  writeLine(io.stdout, `State updated: ${parsed.commitBattle ? "yes" : "no"}`);
+  writeLine(io.stdout, `Outcome: ${battle.outcome}`);
+  writeLine(io.stdout, `Difficulty: ${battle.difficulty}`);
+  if (battle.preferredMoveId) {
+    writeLine(io.stdout, `Opening move: ${battle.preferredMoveId}`);
+  }
+  writeLine(io.stdout, `Rounds: ${battle.rounds}`);
+  writeLine(io.stdout, `Pet: ${battle.pet.name} HP ${battle.pet.hp}/${battle.pet.maxHp}`);
+  writeLine(io.stdout, `Opponent: ${battle.opponent.name} HP ${battle.opponent.hp}/${battle.opponent.maxHp}`);
+  writeLine(io.stdout, `Record: ${nextState.battle.wins}-${nextState.battle.losses}-${nextState.battle.draws}`);
+  writeLine(io.stdout, `Current streak: ${nextState.battle.currentStreak}`);
+  writeLine(io.stdout, `Training XP awarded: ${battle.rewards.petXpAwarded}`);
+  writeLine(io.stdout, `Codex XP awarded: ${battle.rewards.codexXpAwarded}`);
+  writeLine(io.stdout, "Battle log:");
+  for (const entry of battle.log.slice(0, 12)) {
+    const result = entry.category === "guard"
+      ? "guards"
+      : entry.missed
+        ? "misses"
+        : `deals ${entry.damage}`;
+    writeLine(io.stdout, `  R${entry.round} ${entry.actorName} used ${entry.moveName}: ${result}`);
+  }
+}
+
 async function runDashboard(parsed: ParsedArgs, io: CliIo): Promise<void> {
   const dashboard = await startDashboardServer({
     cliCodexHome: parsed.codexHome,
@@ -313,6 +507,7 @@ async function runDashboard(parsed: ParsedArgs, io: CliIo): Promise<void> {
 
 function writePetSummary(stdout: CliIo["stdout"], state: PetState): void {
   writeLine(stdout, `Pet: ${state.pet.name}`);
+  writeLine(stdout, `Active pet: ${state.activePetId}`);
   writeLine(stdout, `Level: ${state.pet.level}`);
   writeLine(stdout, `XP: ${state.pet.xp}/${state.pet.xpToNextLevel}`);
   writeLine(stdout, `Skills: ${state.pet.skills.length > 0 ? state.pet.skills.join(", ") : "none"}`);

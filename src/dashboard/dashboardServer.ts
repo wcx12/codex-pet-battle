@@ -2,12 +2,20 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import path from "node:path";
 
+import { recordPracticeBattleResult, runPracticeBattle } from "../battle/battleEngine.js";
+import type { BattleDifficulty } from "../battle/battleTypes.js";
 import { DEFAULT_STATE_FILE_NAME, ECONOMY_VERSION } from "../constants.js";
+import { createDoctorReport } from "../diagnostics.js";
 import { UserFacingError } from "../errors.js";
-import { createDefaultPetState, readPetState } from "../petStateStore.js";
+import { backupPetState, createDefaultPetState, readPetState, writePetStateAtomically } from "../petStateStore.js";
 import { sanitizeErrorMessage } from "../privacy.js";
 import { runPetScan } from "../scanWorkflow.js";
 import { dashboardHtml, dashboardScript, dashboardStyles } from "./dashboardAssets.js";
+import {
+  listDashboardPetPackages,
+  loadDashboardPetPackage,
+  readDashboardPetSpritesheet
+} from "./dashboardPetAssets.js";
 import {
   createDefaultDashboardConfig,
   toDashboardScanSummary,
@@ -27,6 +35,8 @@ export interface DashboardServerOptions {
   stateFile?: string;
   host?: string;
   port?: number;
+  petId?: string;
+  petAssetRoot?: string;
   autoScan?: {
     enabled?: boolean;
     intervalMinutes?: number;
@@ -53,7 +63,17 @@ interface AutoScanRequestBody {
   runImmediately?: unknown;
 }
 
-interface DashboardRequestBody extends ScanRequestBody, AutoScanRequestBody {}
+interface BattleRequestBody {
+  difficulty?: unknown;
+  seed?: unknown;
+  moveId?: unknown;
+}
+
+interface PetSelectRequestBody {
+  petId?: unknown;
+}
+
+interface DashboardRequestBody extends ScanRequestBody, AutoScanRequestBody, BattleRequestBody, PetSelectRequestBody {}
 
 class DashboardHttpError extends Error {
   constructor(
@@ -100,6 +120,63 @@ export async function startDashboardServer(
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/pet/pet.json") {
+      const petPackage = await loadDashboardPetPackage({
+        cliCodexHome: options.cliCodexHome,
+        petId: options.petId,
+        petAssetRoot: options.petAssetRoot
+      });
+      if (petPackage === null) {
+        throw new DashboardHttpError(404, "Pet package not found.");
+      }
+
+      sendJson(response, 200, petPackage.manifest);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/pet/spritesheet.webp") {
+      const petPackage = await loadDashboardPetPackage({
+        cliCodexHome: options.cliCodexHome,
+        petId: options.petId,
+        petAssetRoot: options.petAssetRoot
+      });
+      if (petPackage === null) {
+        throw new DashboardHttpError(404, "Pet package not found.");
+      }
+
+      sendBinary(response, 200, await readDashboardPetSpritesheet(petPackage), "image/webp");
+      return;
+    }
+
+    const petAssetRoute = parsePetAssetRoute(url.pathname);
+    if (request.method === "GET" && petAssetRoute?.asset === "manifest") {
+      const petPackage = await loadDashboardPetPackage({
+        cliCodexHome: options.cliCodexHome,
+        petId: petAssetRoute.petId,
+        petAssetRoot: options.petAssetRoot
+      });
+      if (petPackage === null) {
+        throw new DashboardHttpError(404, "Pet package not found.");
+      }
+
+      sendJson(response, 200, petPackage.manifest);
+      return;
+    }
+
+    if (request.method === "GET" && petAssetRoute?.asset === "spritesheet") {
+      const petPackage = await loadDashboardPetPackage({
+        cliCodexHome: options.cliCodexHome,
+        petId: petAssetRoute.petId,
+        petAssetRoot: options.petAssetRoot
+      });
+      if (petPackage === null) {
+        throw new DashboardHttpError(404, "Pet package not found.");
+      }
+
+      sendBinary(response, 200, await readDashboardPetSpritesheet(petPackage), "image/webp");
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/favicon.ico") {
       response.writeHead(204, {
         "Cache-Control": "no-store"
@@ -117,6 +194,54 @@ export async function startDashboardServer(
           minIntervalMinutes: MIN_AUTO_SCAN_INTERVAL_MINUTES
         })
       );
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/pets") {
+      sendJson(
+        response,
+        200,
+        await listDashboardPetPackages({
+          cliCodexHome: options.cliCodexHome,
+          petId: options.petId,
+          petAssetRoot: options.petAssetRoot
+        })
+      );
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/pet/select") {
+      requireWriteToken(request, writeToken);
+      const body = await readJsonBody(request);
+      const petId = parseRequiredPetId(body.petId);
+      const result = await runSerializedScan(async () => {
+        const petPackage = await loadDashboardPetPackage({
+          cliCodexHome: options.cliCodexHome,
+          petId,
+          petAssetRoot: options.petAssetRoot
+        });
+        if (petPackage === null) {
+          throw new DashboardHttpError(404, "Pet package not found.");
+        }
+        const now = new Date();
+        const state = (await readPetState(stateFile)) ?? createDefaultPetState(now);
+        const nextState = {
+          ...state,
+          activePetId: petPackage.manifest.id,
+          pet: {
+            ...state.pet,
+            name: petPackage.manifest.displayName
+          },
+          updatedAt: now.toISOString()
+        };
+        await writePetStateAtomically(stateFile, nextState);
+        lastDryRunKey = null;
+        return {
+          selectedPet: petPackage.manifest,
+          resultingStatus: toDashboardStatus(nextState, stateFile, now)
+        };
+      });
+      sendJson(response, 200, result);
       return;
     }
 
@@ -161,6 +286,59 @@ export async function startDashboardServer(
       sendJson(response, 200, {
         status: toDashboardStatus(state, stateFile, new Date())
       });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/doctor") {
+      sendJson(
+        response,
+        200,
+        {
+          doctor: await createDoctorReport({
+            cliCodexHome: options.cliCodexHome,
+            stateFile,
+            petAssetRoot: options.petAssetRoot
+          })
+        }
+      );
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/state/backup") {
+      requireWriteToken(request, writeToken);
+      const backup = await backupPetState(stateFile);
+      sendJson(response, 200, {
+        backup: {
+          stateFileLabel: path.basename(stateFile),
+          backupFileLabel: path.basename(backup.backupFilePath),
+          backedUpAt: backup.backedUpAt
+        }
+      });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/battle/practice") {
+      requireWriteToken(request, writeToken);
+      const body = await readJsonBody(request);
+      const difficulty = parseOptionalBattleDifficulty(body.difficulty);
+      const seed = parseOptionalBattleSeed(body.seed);
+      const preferredMoveId = parseOptionalBattleMoveId(body.moveId);
+      const result = await runSerializedScan(async () => {
+        const state = (await readPetState(stateFile)) ?? createDefaultPetState(new Date());
+        const battle = runPracticeBattle(state, { difficulty, seed, preferredMoveId });
+        if (preferredMoveId && battle.preferredMoveId !== preferredMoveId) {
+          throw new DashboardHttpError(400, "moveId must be one of the pet's unlocked moves.");
+        }
+        const now = new Date();
+        const nextState = recordPracticeBattleResult(state, battle, now);
+        await writePetStateAtomically(stateFile, nextState);
+        lastDryRunKey = null;
+        return {
+          battle,
+          resultingStatus: toDashboardStatus(nextState, stateFile, now)
+        };
+      });
+      sendJson(response, 200, result);
       return;
     }
 
@@ -415,6 +593,56 @@ function parseOptionalAutoScanInterval(value: unknown): number | undefined {
   return value;
 }
 
+function parseOptionalBattleDifficulty(value: unknown): BattleDifficulty | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (value === "easy" || value === "normal" || value === "hard") {
+    return value;
+  }
+
+  throw new DashboardHttpError(400, "difficulty must be easy, normal, or hard.");
+}
+
+function parseOptionalBattleSeed(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  if (typeof value !== "string" || value.length > 128) {
+    throw new DashboardHttpError(400, "seed must be a short string when provided.");
+  }
+
+  return value;
+}
+
+function parseOptionalBattleMoveId(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  if (
+    typeof value !== "string" ||
+    !/^[a-z0-9](?:[a-z0-9_:-]{0,62}[a-z0-9])?$/u.test(value)
+  ) {
+    throw new DashboardHttpError(400, "moveId must be a safe move id.");
+  }
+
+  return value;
+}
+
+function parseRequiredPetId(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(value)
+  ) {
+    throw new DashboardHttpError(400, "petId must be a safe pet id.");
+  }
+
+  return value;
+}
+
 async function readJsonBody(request: IncomingMessage): Promise<DashboardRequestBody> {
   const chunks: Buffer[] = [];
   let bytes = 0;
@@ -467,6 +695,20 @@ function sendText(
     "Cache-Control": "no-store",
     "Content-Type": contentType,
     "Content-Length": Buffer.byteLength(body)
+  });
+  response.end(body);
+}
+
+function sendBinary(
+  response: ServerResponse,
+  statusCode: number,
+  body: Buffer,
+  contentType: string
+): void {
+  response.writeHead(statusCode, {
+    "Cache-Control": "no-store",
+    "Content-Type": contentType,
+    "Content-Length": body.byteLength
   });
   response.end(body);
 }
@@ -530,6 +772,22 @@ function listenOnAvailablePort(server: Server, host: string, port: number): Prom
 
 function scanKey(recentDays: number | undefined): string {
   return recentDays === undefined ? "all" : String(recentDays);
+}
+
+function parsePetAssetRoute(pathname: string): { petId: string; asset: "manifest" | "spritesheet" } | null {
+  const match = /^\/pet\/([^/]+)\/(pet\.json|spritesheet\.webp)$/u.exec(pathname);
+  if (!match) {
+    return null;
+  }
+
+  try {
+    return {
+      petId: decodeURIComponent(match[1]),
+      asset: match[2] === "pet.json" ? "manifest" : "spritesheet"
+    };
+  } catch {
+    throw new DashboardHttpError(400, "Pet id must be a safe slug.");
+  }
 }
 
 export const dashboardServerDefaults = {

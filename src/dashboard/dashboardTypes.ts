@@ -2,11 +2,20 @@ import type { ScannerWarnings } from "../types.js";
 
 export interface DashboardStatus {
   pet: {
+    activePetId: string;
     name: string;
     level: number;
     xp: number;
     xpToNextLevel: number;
     skills: string[];
+    skillDetails: Array<{
+      id: string;
+      displayName: string;
+      unlockLevel: number;
+      unlocked: boolean;
+      effect: string;
+      description: string;
+    }>;
   };
   economy: {
     version: string;
@@ -26,6 +35,50 @@ export interface DashboardStatus {
     lifetimeOutputTokens: number;
     lifetimeReasoningOutputTokens: number;
     lifetimeTotalTokens: number;
+  };
+  battle: {
+    totalBattles: number;
+    wins: number;
+    losses: number;
+    draws: number;
+    currentStreak: number;
+    bestStreak: number;
+    lastOutcome?: "victory" | "defeat" | "draw";
+    lastBattledAt?: string;
+    availableMoves: Array<{
+      id: string;
+      displayName: string;
+      affinity: string;
+      category: "attack" | "guard";
+      power: number;
+      accuracy: number;
+    }>;
+    moveDetails: Array<{
+      id: string;
+      displayName: string;
+      affinity: string;
+      category: "attack" | "guard";
+      power: number;
+      accuracy: number;
+      unlocked: boolean;
+      unlockLevel?: number;
+    }>;
+  };
+  adventure: {
+    rankKey: string;
+    quests: Array<{
+      id: string;
+      titleKey: string;
+      detailKey: string;
+      state: "done" | "active" | "locked";
+      progressLabel: string;
+    }>;
+    badges: Array<{
+      id: string;
+      titleKey: string;
+      detailKey: string;
+      unlocked: boolean;
+    }>;
   };
   stateFileLabel: string;
   createdAt: string;
@@ -52,7 +105,8 @@ export interface DashboardScanSummary {
 }
 
 export interface DashboardConfig {
-  writeToken: string;
+  writeToken?: string;
+  readOnlyShare?: boolean;
   defaultRecentDays: number;
   economyVersion: string;
   stateFileLabel: string;

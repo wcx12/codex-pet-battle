@@ -7,6 +7,8 @@ venv/
 dist/
 build/
 out/
+output/
+.playwright-cli/
 
 # Local state
 .env
